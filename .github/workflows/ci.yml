@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - trunk
+  pull_request:
+    branches:
+      - trunk
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The tests cover the keyring and the PGP operations and never open a window,
+  # so no GTK/WebKit packages are needed here. glaze loads the platform webview
+  # through purego at runtime, so building needs nothing either.
+  test:
+    name: test-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - run: go build ./...
+
+      - run: go vet ./...
+
+      - name: Test
+        timeout-minutes: 6
+        run: go test -count=1 -timeout 150s ./...
+
+  cross-build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          CGO_ENABLED: "0"
+          GOARCH: ${{ matrix.goarch }}
+          GOOS: ${{ matrix.goos }}
+        run: go build -trimpath -ldflags="-s -w" ./...

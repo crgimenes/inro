@@ -30,3 +30,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# The binary from a bare "go build" in the repo root.
+/inro
