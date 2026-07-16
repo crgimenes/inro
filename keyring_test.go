@@ -13,7 +13,7 @@ import (
 func TestKeyringPersistsMetadata(t *testing.T) {
 	dir := t.TempDir()
 
-	kr, err := openKeyring(dir)
+	kr, err := openKeyring(dir, 0)
 	if err != nil {
 		t.Fatalf("openKeyring: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestKeyringPersistsMetadata(t *testing.T) {
 		t.Fatalf("SetMeta: %v", err)
 	}
 
-	reopened, err := openKeyring(dir)
+	reopened, err := openKeyring(dir, 0)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestKeyringPersistsMetadata(t *testing.T) {
 func TestKeyringDeleteRemovesFile(t *testing.T) {
 	dir := t.TempDir()
 
-	kr, err := openKeyring(dir)
+	kr, err := openKeyring(dir, 0)
 	if err != nil {
 		t.Fatalf("openKeyring: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestKeyringDeleteRemovesFile(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 
-	reopened, err := openKeyring(dir)
+	reopened, err := openKeyring(dir, 0)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}

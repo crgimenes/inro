@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
@@ -39,23 +40,35 @@ type KeyInfo struct {
 // Keyring is the on-disk key collection: one armored file per key under
 // <dir>/keys, plus <dir>/keyring.filo with the local metadata.
 //
-// The cached entities are never unlocked. Operations needing private key
-// material re-read the key from disk and unlock that copy, so decrypted
-// secrets live only for the duration of a single operation.
+// The entities loaded from disk are never unlocked. Operations needing private
+// key material go through unlocked(), which reads a fresh copy and unlocks
+// that. A successful unlock is remembered in memory for cacheTTL (the
+// KeyCacheSeconds setting) so the next operations skip the passphrase; the
+// passphrase itself is never kept anywhere.
 type Keyring struct {
-	mu       sync.RWMutex
-	dir      string
-	entities map[string]*openpgp.Entity
-	meta     map[string]KeyMeta
+	mu           sync.RWMutex
+	dir          string
+	cacheTTL     time.Duration
+	entities     map[string]*openpgp.Entity
+	meta         map[string]KeyMeta
+	unlockedKeys map[string]unlockedKey
+}
+
+type unlockedKey struct {
+	e       *openpgp.Entity
+	expires time.Time
 }
 
 // openKeyring loads the keyring from dir, creating the directory tree on
-// first run.
-func openKeyring(dir string) (*Keyring, error) {
+// first run. cacheTTL is how long an unlocked key stays usable without its
+// passphrase; zero disables the cache.
+func openKeyring(dir string, cacheTTL time.Duration) (*Keyring, error) {
 	k := &Keyring{
-		dir:      dir,
-		entities: map[string]*openpgp.Entity{},
-		meta:     map[string]KeyMeta{},
+		dir:          dir,
+		cacheTTL:     cacheTTL,
+		entities:     map[string]*openpgp.Entity{},
+		meta:         map[string]KeyMeta{},
+		unlockedKeys: map[string]unlockedKey{},
 	}
 
 	err := os.MkdirAll(k.keysDir(), 0o700)
@@ -340,6 +353,7 @@ func (k *Keyring) Delete(fingerprint string) error {
 
 	delete(k.entities, fingerprint)
 	delete(k.meta, fingerprint)
+	delete(k.unlockedKeys, fingerprint)
 
 	return k.saveMeta()
 }
@@ -427,11 +441,17 @@ func (k *Keyring) publicList() openpgp.EntityList {
 	return el
 }
 
-// unlocked re-reads the key from disk and unlocks that fresh copy. The
-// returned entity is the caller's alone and must be discarded once the
-// operation finishes.
+// unlocked returns a usable private key: the cached unlocked copy when there
+// is a fresh one, otherwise a copy re-read from disk and unlocked with the
+// passphrase. The "passphrase required" error text is a contract with the UI,
+// which turns it into a passphrase prompt instead of a failure.
 func (k *Keyring) unlocked(fingerprint, passphrase string) (*openpgp.Entity, error) {
 	fingerprint = strings.ToUpper(strings.TrimSpace(fingerprint))
+
+	e := k.cachedUnlocked(fingerprint)
+	if e != nil {
+		return e, nil
+	}
 
 	b, err := os.ReadFile(filepath.Clean(k.keyPath(fingerprint)))
 	if err != nil {
@@ -446,13 +466,99 @@ func (k *Keyring) unlocked(fingerprint, passphrase string) (*openpgp.Entity, err
 		return nil, fmt.Errorf("key %s is empty", fingerprint)
 	}
 
-	e := el[0]
+	e = el[0]
+	if e.PrivateKey == nil {
+		return nil, fmt.Errorf("key %s has no private part", fingerprint)
+	}
+	if e.PrivateKey.Encrypted && passphrase == "" {
+		return nil, fmt.Errorf("passphrase required to unlock %s", primaryIdentity(e))
+	}
+
 	err = unlock(e, passphrase)
 	if err != nil {
 		return nil, err
 	}
 
+	k.rememberUnlocked(fingerprint, e)
 	return e, nil
+}
+
+// cachedUnlocked returns the unlocked entity for fingerprint if the cache
+// holds a fresh one. The entity is shared between operations for its lifetime;
+// signing and decrypting only read from it, and the UI drives one operation at
+// a time.
+func (k *Keyring) cachedUnlocked(fingerprint string) *openpgp.Entity {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	u, ok := k.unlockedKeys[fingerprint]
+	if !ok {
+		return nil
+	}
+	if time.Now().After(u.expires) {
+		delete(k.unlockedKeys, fingerprint)
+		return nil
+	}
+	return u.e
+}
+
+func (k *Keyring) rememberUnlocked(fingerprint string, e *openpgp.Entity) {
+	if k.cacheTTL <= 0 {
+		return
+	}
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.unlockedKeys[fingerprint] = unlockedKey{e: e, expires: time.Now().Add(k.cacheTTL)}
+}
+
+// isUnlocked reports whether the key currently has a fresh cached unlock, so
+// the UI can skip asking for a passphrase it does not need.
+func (k *Keyring) isUnlocked(fingerprint string) bool {
+	return k.cachedUnlocked(strings.ToUpper(strings.TrimSpace(fingerprint))) != nil
+}
+
+// canOpen returns the private keys able to open a message addressed to ids,
+// sorted by identity so "pick the first" is deterministic. A wildcard id
+// (0, anonymous recipient) matches every private key.
+func (k *Keyring) canOpen(ids []uint64) []*openpgp.Entity {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+
+	wildcard := slices.Contains(ids, 0)
+
+	var out []*openpgp.Entity
+	for _, e := range k.entities {
+		if e.PrivateKey == nil {
+			continue
+		}
+		if wildcard || matchesAnyKeyID(e, ids) {
+			out = append(out, e)
+		}
+	}
+
+	slices.SortFunc(out, func(a, b *openpgp.Entity) int {
+		return strings.Compare(primaryIdentity(a), primaryIdentity(b))
+	})
+
+	return out
+}
+
+func matchesAnyKeyID(e *openpgp.Entity, ids []uint64) bool {
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if e.PrimaryKey.KeyId == id {
+			return true
+		}
+		for _, sub := range e.Subkeys {
+			if sub.PublicKey.KeyId == id {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // serializeEntity renders an entity as armored text, keeping the private part

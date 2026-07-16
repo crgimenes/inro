@@ -11,6 +11,7 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
 	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
 )
 
 // Signature reports what could be established about the signature carried by a
@@ -66,16 +67,48 @@ func encryptMessage(text string, to []*openpgp.Entity, signer *openpgp.Entity) (
 	return buf.String(), nil
 }
 
+// messageRecipients lists the key IDs an armored encrypted message is
+// addressed to, and whether it can also (or only) be opened with a passphrase.
+// It reads the session-key packets at the head of the message, so no key
+// material is needed. An ID of 0 means an anonymous recipient.
+func messageRecipients(message string) (ids []uint64, symmetric bool, err error) {
+	block, err := armor.Decode(strings.NewReader(message))
+	if err != nil {
+		return nil, false, fmt.Errorf("not an armored PGP message: %w", err)
+	}
+
+	packets := packet.NewReader(block.Body)
+	for {
+		p, err := packets.Next()
+		if err != nil {
+			// EOF or a packet we cannot parse; the session-key packets a valid
+			// message starts with have been consumed by now either way.
+			return ids, symmetric, nil
+		}
+
+		switch pkt := p.(type) {
+		case *packet.EncryptedKey:
+			ids = append(ids, pkt.KeyId)
+		case *packet.SymmetricKeyEncrypted:
+			symmetric = true
+		default:
+			// First non-session-key packet: the encrypted payload itself.
+			return ids, symmetric, nil
+		}
+	}
+}
+
 // decryptMessage opens an armored PGP message. The keyring must hold the
 // unlocked private key the message was encrypted to; any public keys it also
-// holds are used to verify an embedded signature.
-func decryptMessage(message string, keyring openpgp.EntityList) (Decrypted, error) {
+// holds are used to verify an embedded signature. prompt is only consulted for
+// passphrase-protected (symmetric) messages and may be nil.
+func decryptMessage(message string, keyring openpgp.EntityList, prompt openpgp.PromptFunction) (Decrypted, error) {
 	block, err := armor.Decode(strings.NewReader(message))
 	if err != nil {
 		return Decrypted{}, fmt.Errorf("not an armored PGP message: %w", err)
 	}
 
-	md, err := openpgp.ReadMessage(block.Body, keyring, nil, nil)
+	md, err := openpgp.ReadMessage(block.Body, keyring, prompt, nil)
 	if err != nil {
 		return Decrypted{}, fmt.Errorf("decrypt: %w", err)
 	}

@@ -20,34 +20,37 @@ go install github.com/crgimenes/inro@latest
 
 ## Use
 
-Import a key on the **Keys** tab: paste an armored public key a friend sent
-you, or your own private key exported from gpg.
+On first run inro opens the **Keys** tab: generate your key pair right there
+(EdDSA/Curve25519), or import keys you already have — paste an armored key or
+open a `.asc` file. Keys exported from gpg import fine
+(`gpg --armor --export-secret-keys you@example.com`).
 
-```sh
-gpg --armor --export-secret-keys you@example.com   # your key, to sign and decrypt
-gpg --armor --export friend@example.com            # a friend's key, to encrypt to them
-```
+Then everything happens on the **Message** screen: input on the left, result
+on the right. There is no mode to choose and usually nothing to click,
+because what lands in the input already decides what happens to it:
 
-Then work on the **Message** screen: input on the left, result on the right.
-There is no mode to choose, because what you put in the input already decides
-what can be done with it.
+- **A signed message** is verified the moment it is pasted. Zero clicks.
+- **An encrypted message** names its own recipients, so inro finds which of
+  your keys opens it by itself. If that key needs no passphrase — or you
+  typed it recently — the message is decrypted on the spot; otherwise the
+  only question inro ever asks, the passphrase, is already focused and Enter
+  answers it. Messages protected by a shared passphrase instead of a key
+  work too.
+- **Plain text** goes out: pick recipients to *Encrypt*, flip *Sign as* to
+  sign, or both. Signing alone clear-signs the message — it stays readable
+  and carries its signature. The result comes out selected, ready to copy.
 
-- **An encrypted message** can only be opened, so the button says *Decrypt* and
-  asks which of your keys opens it.
-- **A signed message** can only be checked, so the button says *Verify* and asks
-  for nothing at all.
-- **Plain text** can only go out. Pick recipients to *Encrypt*, turn on *Sign as*
-  to sign, or do both. Signing on its own clear-signs the message: it stays
-  readable and carries its signature, which is what you want for something
-  pasted into an email.
+Open… loads a message from a file; Save… writes the result to one.
+Cmd/Ctrl+Enter runs the action from anywhere.
 
-Any signature found while decrypting or verifying is reported above the result.
-A signature only reports as valid when the signer's key is in your keyring.
-"Valid" here means the message was not altered and it was signed by that key —
-whether the key really belongs to who it claims to is still on you.
+Any signature found while decrypting or verifying is reported above the
+result. A signature only reports as valid when the signer's key is in your
+keyring. "Valid" here means the message was not altered and it was signed by
+that key — whether the key really belongs to who it claims to is still on you.
 
-Your passphrase is asked per operation and never stored. Private keys are held
-locked in memory; each sign or decrypt unlocks a throwaway copy read from disk.
+Your passphrase is never stored. After you type it, the unlocked key stays in
+memory for `KeyCacheSeconds` (default 5 minutes, 0 disables the cache) so a
+burst of work asks once; after it expires, operations ask again.
 
 ## Files
 
@@ -78,9 +81,12 @@ Every setting is optional; the defaults are shown.
 (set Debug #f)                       ; open the webview developer tools
 (set DataDir "~/.config/inro")       ; where keys and metadata live
 (set DefaultKey "")                  ; fingerprint pre-selected in the UI
+(set KeyCacheSeconds 300)            ; how long a typed passphrase keeps the key unlocked
 ```
 
 ## Status
 
-Early. Encrypt, decrypt, sign, verify, and key import/export/delete work.
-Key generation is not implemented yet — bring a key from gpg.
+Early but whole: key generation, import/export/delete, encrypt, decrypt
+(including passphrase-protected messages), sign, verify, automatic key
+selection, and the unlocked-key cache all work. Not there yet: key revocation
+and expiry management.

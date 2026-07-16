@@ -16,6 +16,11 @@ type Config struct {
 	Debug      bool
 	DataDir    string
 	DefaultKey string
+
+	// KeyCacheSeconds is how long a key stays unlocked in memory after a
+	// passphrase is typed, so a burst of operations asks only once. Zero
+	// disables the cache and every operation asks again.
+	KeyCacheSeconds int
 }
 
 // configHome returns the base directory for user configuration, honouring
@@ -53,11 +58,12 @@ func fileExists(name string) bool {
 // values set in the Filo config file (if present).
 func loadConfig() (*Config, error) {
 	cfg := &Config{
-		Width:      1024,
-		Height:     720,
-		Debug:      false,
-		DataDir:    filepath.Join(configHome(), "inro"),
-		DefaultKey: "",
+		Width:           1024,
+		Height:          720,
+		Debug:           false,
+		DataDir:         filepath.Join(configHome(), "inro"),
+		DefaultKey:      "",
+		KeyCacheSeconds: 300,
 	}
 
 	name := configPath()
@@ -73,6 +79,7 @@ func loadConfig() (*Config, error) {
 	f.SetGlobal("Debug", cfg.Debug)
 	f.SetGlobal("DataDir", cfg.DataDir)
 	f.SetGlobal("DefaultKey", cfg.DefaultKey)
+	f.SetGlobal("KeyCacheSeconds", cfg.KeyCacheSeconds)
 
 	b, err := os.ReadFile(filepath.Clean(name))
 	if err != nil {
@@ -89,6 +96,7 @@ func loadConfig() (*Config, error) {
 	cfg.Debug = f.MustGetBool("Debug")
 	cfg.DataDir = expandHome(f.MustGetString("DataDir"))
 	cfg.DefaultKey = f.MustGetString("DefaultKey")
+	cfg.KeyCacheSeconds = f.MustGetInt("KeyCacheSeconds")
 
 	return cfg, nil
 }

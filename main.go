@@ -53,7 +53,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	kr, err := openKeyring(cfg.DataDir)
+	kr, err := openKeyring(cfg.DataDir, time.Duration(cfg.KeyCacheSeconds)*time.Second)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func main() {
 	w.SetTitle("inro")
 	w.SetSize(cfg.Width, cfg.Height, glaze.HintNone)
 
-	_, err = glaze.BindMethods(w, "inro", &Service{cfg: cfg, kr: kr})
+	_, err = glaze.BindMethods(w, "inro", &Service{cfg: cfg, kr: kr, w: w})
 	if err != nil {
 		log.Fatal(err)
 	}

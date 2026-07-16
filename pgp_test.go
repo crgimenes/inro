@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
 )
 
@@ -42,7 +46,7 @@ func newTestService(t *testing.T) (*Service, KeyInfo, KeyInfo) {
 
 	dir := t.TempDir()
 
-	kr, err := openKeyring(dir)
+	kr, err := openKeyring(dir, 0)
 	if err != nil {
 		t.Fatalf("openKeyring: %v", err)
 	}
@@ -211,4 +215,250 @@ func TestVerifyUnknownSigner(t *testing.T) {
 	if got.Signature.Verified {
 		t.Fatal("a message from an unknown signer was reported as verified")
 	}
+}
+
+// TestMessageRecipients checks the packet-level recipient listing that drives
+// automatic key selection.
+func TestMessageRecipients(t *testing.T) {
+	svc, _, bob := newTestService(t)
+
+	armored, err := svc.Encrypt(EncryptRequest{
+		Text:       "hello",
+		Recipients: []string{bob.Fingerprint},
+	})
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+
+	ids, symmetric, err := messageRecipients(armored)
+	if err != nil {
+		t.Fatalf("messageRecipients: %v", err)
+	}
+	if symmetric {
+		t.Error("key-encrypted message reported as symmetric")
+	}
+	if len(ids) == 0 {
+		t.Fatal("no recipient key IDs found")
+	}
+
+	// The IDs must map back to Bob and to nobody else.
+	candidates := svc.kr.canOpen(ids)
+	if len(candidates) != 1 {
+		t.Fatalf("canOpen returned %d keys, want 1", len(candidates))
+	}
+	if fingerprintOf(candidates[0]) != bob.Fingerprint {
+		t.Errorf("canOpen picked %s, want Bob %s", fingerprintOf(candidates[0]), bob.Fingerprint)
+	}
+}
+
+// TestDecryptAutoKey checks that Decrypt finds the right key from the message
+// itself when none is named.
+func TestDecryptAutoKey(t *testing.T) {
+	svc, _, bob := newTestService(t)
+
+	armored, err := svc.Encrypt(EncryptRequest{
+		Text:       "auto",
+		Recipients: []string{bob.Fingerprint},
+	})
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+
+	got, err := svc.Decrypt(DecryptRequest{
+		Message:    armored,
+		Passphrase: testPassphrase,
+	})
+	if err != nil {
+		t.Fatalf("Decrypt without explicit key: %v", err)
+	}
+	if got.Text != "auto" {
+		t.Errorf("text = %q, want %q", got.Text, "auto")
+	}
+}
+
+// TestDecryptPassphraseRequired checks the error contract the UI relies on to
+// turn a missing passphrase into a prompt instead of a failure.
+func TestDecryptPassphraseRequired(t *testing.T) {
+	svc, _, bob := newTestService(t)
+
+	armored, err := svc.Encrypt(EncryptRequest{
+		Text:       "hello",
+		Recipients: []string{bob.Fingerprint},
+	})
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+
+	_, err = svc.Decrypt(DecryptRequest{Message: armored})
+	if err == nil {
+		t.Fatal("Decrypt of a locked key with no passphrase succeeded")
+	}
+	if !strings.Contains(err.Error(), "passphrase required") {
+		t.Errorf("error = %q, want it to contain %q", err, "passphrase required")
+	}
+}
+
+// TestKeyCache checks the unlocked-key cache: with a TTL a second operation
+// needs no passphrase, without one it does.
+func TestKeyCache(t *testing.T) {
+	svc, _, bob := newTestService(t)
+	svc.kr.cacheTTL = time.Minute
+
+	armored, err := svc.Encrypt(EncryptRequest{
+		Text:       "cached",
+		Recipients: []string{bob.Fingerprint},
+	})
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+
+	_, err = svc.Decrypt(DecryptRequest{Message: armored, Passphrase: testPassphrase})
+	if err != nil {
+		t.Fatalf("first Decrypt: %v", err)
+	}
+
+	if !svc.kr.isUnlocked(bob.Fingerprint) {
+		t.Fatal("key not cached after a successful unlock")
+	}
+
+	got, err := svc.Decrypt(DecryptRequest{Message: armored})
+	if err != nil {
+		t.Fatalf("second Decrypt should use the cache: %v", err)
+	}
+	if got.Text != "cached" {
+		t.Errorf("text = %q, want %q", got.Text, "cached")
+	}
+
+	// Expire the entry and the passphrase is needed again.
+	svc.kr.mu.Lock()
+	u := svc.kr.unlockedKeys[bob.Fingerprint]
+	u.expires = time.Now().Add(-time.Second)
+	svc.kr.unlockedKeys[bob.Fingerprint] = u
+	svc.kr.mu.Unlock()
+
+	_, err = svc.Decrypt(DecryptRequest{Message: armored})
+	if err == nil || !strings.Contains(err.Error(), "passphrase required") {
+		t.Errorf("after expiry, error = %v, want passphrase required", err)
+	}
+}
+
+// TestGenerateKey checks the in-app key generation round trip.
+func TestGenerateKey(t *testing.T) {
+	svc, _, _ := newTestService(t)
+
+	info, err := svc.GenerateKey("Carol", "carol@example.com", "s3cret")
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	if !info.Private {
+		t.Error("generated key is not private")
+	}
+	if !strings.Contains(info.Identity, "Carol") {
+		t.Errorf("identity = %q, want it to name Carol", info.Identity)
+	}
+
+	armored, err := svc.Encrypt(EncryptRequest{
+		Text:       "to carol",
+		Recipients: []string{info.Fingerprint},
+	})
+	if err != nil {
+		t.Fatalf("Encrypt to generated key: %v", err)
+	}
+
+	got, err := svc.Decrypt(DecryptRequest{Message: armored, Passphrase: "s3cret"})
+	if err != nil {
+		t.Fatalf("Decrypt with generated key: %v", err)
+	}
+	if got.Text != "to carol" {
+		t.Errorf("text = %q, want %q", got.Text, "to carol")
+	}
+
+	_, err = svc.GenerateKey("", "", "")
+	if err == nil {
+		t.Error("GenerateKey with empty name and email should fail")
+	}
+}
+
+// TestDecryptSymmetric checks passphrase-protected messages, which have no
+// recipient keys at all.
+func TestDecryptSymmetric(t *testing.T) {
+	svc, _, _ := newTestService(t)
+
+	var buf bytes.Buffer
+	aw, err := armor.Encode(&buf, "PGP MESSAGE", nil)
+	if err != nil {
+		t.Fatalf("armor: %v", err)
+	}
+	w, err := openpgp.SymmetricallyEncrypt(aw, []byte("shared secret"), nil, nil)
+	if err != nil {
+		t.Fatalf("SymmetricallyEncrypt: %v", err)
+	}
+	_, err = io.WriteString(w, "symmetric hello")
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	err = w.Close()
+	if err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	err = aw.Close()
+	if err != nil {
+		t.Fatalf("close armor: %v", err)
+	}
+	message := buf.String()
+
+	ids, symmetric, err := messageRecipients(message)
+	if err != nil {
+		t.Fatalf("messageRecipients: %v", err)
+	}
+	if !symmetric || len(ids) != 0 {
+		t.Fatalf("ids=%v symmetric=%v, want none and true", ids, symmetric)
+	}
+
+	got, err := svc.Decrypt(DecryptRequest{Message: message, Passphrase: "shared secret"})
+	if err != nil {
+		t.Fatalf("Decrypt: %v", err)
+	}
+	if got.Text != "symmetric hello" {
+		t.Errorf("text = %q, want %q", got.Text, "symmetric hello")
+	}
+
+	_, err = svc.Decrypt(DecryptRequest{Message: message, Passphrase: "wrong"})
+	if err == nil {
+		t.Error("symmetric decrypt with wrong passphrase succeeded")
+	}
+
+	_, err = svc.Decrypt(DecryptRequest{Message: message})
+	if err == nil || !strings.Contains(err.Error(), "passphrase required") {
+		t.Errorf("no passphrase: error = %v, want passphrase required", err)
+	}
+}
+
+// TestWhoCanOpen checks the inspection the UI uses to pick keys and decide
+// whether to prompt.
+func TestWhoCanOpen(t *testing.T) {
+	svc, alice, bob := newTestService(t)
+
+	armored, err := svc.Encrypt(EncryptRequest{
+		Text:       "x",
+		Recipients: []string{bob.Fingerprint},
+	})
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+
+	info, err := svc.WhoCanOpen(armored)
+	if err != nil {
+		t.Fatalf("WhoCanOpen: %v", err)
+	}
+	if info.Symmetric {
+		t.Error("reported symmetric for a key-encrypted message")
+	}
+	if len(info.Keys) != 1 || info.Keys[0].Fingerprint != bob.Fingerprint {
+		t.Fatalf("keys = %+v, want only Bob", info.Keys)
+	}
+	if !info.Keys[0].Locked {
+		t.Error("Bob's key is passphrase-protected and not cached; want Locked=true")
+	}
+	_ = alice
 }

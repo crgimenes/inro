@@ -36,7 +36,10 @@
           <div class="col-lg-6">
             <div class="d-flex justify-content-between align-items-center mb-1">
               <label class="form-label small text-uppercase text-muted mb-0">Input</label>
-              <span id="detected" class="badge text-bg-secondary">Empty</span>
+              <span>
+                <span id="detected" class="badge text-bg-secondary">Empty</span>
+                <button id="open-file" class="btn btn-outline-secondary btn-sm ms-2 py-0">Open…</button>
+              </span>
             </div>
             <textarea id="in-text" class="form-control font-monospace" rows="9"
                       placeholder="Paste an encrypted or signed message, or type one to send"
@@ -70,6 +73,7 @@
             <div id="ctl-passphrase" class="mt-2 d-none">
               <label class="form-label small text-uppercase text-muted">Passphrase</label>
               <input id="passphrase" type="password" class="form-control" autocomplete="off">
+              <div id="pass-hint" class="form-text"></div>
             </div>
 
             <div class="d-flex align-items-center gap-3 mt-3">
@@ -85,6 +89,7 @@
                       placeholder="The result lands here"></textarea>
             <div class="d-flex gap-2 mt-2">
               <button id="copy" class="btn btn-outline-secondary btn-sm">Copy</button>
+              <button id="save-file" class="btn btn-outline-secondary btn-sm">Save…</button>
               <button id="clear" class="btn btn-outline-secondary btn-sm">Clear</button>
             </div>
           </div>
@@ -101,13 +106,32 @@
 
           <div class="col-lg-5">
             <label class="form-label small text-uppercase text-muted">Import a key</label>
-            <textarea id="key-import" class="form-control font-monospace" rows="10"
+            <textarea id="key-import" class="form-control font-monospace" rows="7"
                       placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"></textarea>
-            <button id="key-import-run" class="btn btn-primary mt-2 px-4">Import</button>
-            <div class="form-text">
-              Public or private, armored. Export yours from gpg with
-              <code>gpg --armor --export-secret-keys</code>.
+            <div class="d-flex align-items-center gap-2 mt-2">
+              <button id="key-import-run" class="btn btn-primary px-4">Import</button>
+              <span class="form-text m-0">Public or private, armored (.asc). Or open a
+                <button id="key-import-file" class="btn btn-link btn-sm p-0 align-baseline">file…</button>
+              </span>
             </div>
+
+            <hr class="my-4">
+
+            <label class="form-label small text-uppercase text-muted">Generate a new key</label>
+            <div class="row g-2">
+              <div class="col-sm-6">
+                <input id="gen-name" type="text" class="form-control" placeholder="Name">
+              </div>
+              <div class="col-sm-6">
+                <input id="gen-email" type="email" class="form-control" placeholder="Email">
+              </div>
+              <div class="col-12">
+                <input id="gen-passphrase" type="password" class="form-control"
+                       autocomplete="new-password" placeholder="Passphrase (empty = unprotected)">
+              </div>
+            </div>
+            <button id="gen-run" class="btn btn-primary mt-2 px-4">Generate</button>
+            <div class="form-text">EdDSA (Curve25519), stored in your keyring.</div>
           </div>
         </div>
       </div>
