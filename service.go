@@ -52,7 +52,6 @@ type SignRequest struct {
 // Settings is the slice of the configuration the UI needs.
 type Settings struct {
 	DefaultKey string `json:"defaultKey"`
-	DataDir    string `json:"dataDir"`
 }
 
 // OpenCandidate names a private key that can open a given message. Locked
@@ -72,7 +71,6 @@ type MessageInfo struct {
 func (s *Service) Settings() (Settings, error) {
 	return Settings{
 		DefaultKey: strings.ToUpper(s.cfg.DefaultKey),
-		DataDir:    s.cfg.DataDir,
 	}, nil
 }
 
@@ -135,7 +133,7 @@ func (s *Service) ListKeys() ([]KeyInfo, error) {
 // ImportKey adds one or more armored keys to the keyring.
 func (s *Service) ImportKey(armored string) ([]KeyInfo, error) {
 	if strings.TrimSpace(armored) == "" {
-		return nil, fmt.Errorf("paste an armored PGP key first")
+		return nil, errors.New("paste an armored PGP key first")
 	}
 	return s.kr.Import(armored)
 }
@@ -252,7 +250,7 @@ func (s *Service) WhoCanOpen(message string) (MessageInfo, error) {
 // Encrypt encrypts a message to the requested recipients.
 func (s *Service) Encrypt(req EncryptRequest) (string, error) {
 	if strings.TrimSpace(req.Text) == "" {
-		return "", fmt.Errorf("nothing to encrypt")
+		return "", errors.New("nothing to encrypt")
 	}
 
 	to, err := s.kr.entitiesFor(req.Recipients)
@@ -277,7 +275,7 @@ func (s *Service) Encrypt(req EncryptRequest) (string, error) {
 // list.
 func (s *Service) Decrypt(req DecryptRequest) (Decrypted, error) {
 	if strings.TrimSpace(req.Message) == "" {
-		return Decrypted{}, fmt.Errorf("paste an encrypted message first")
+		return Decrypted{}, errors.New("paste an encrypted message first")
 	}
 
 	ids, symmetric, err := messageRecipients(req.Message)
@@ -334,7 +332,7 @@ func (s *Service) decryptSymmetric(req DecryptRequest) (Decrypted, error) {
 // Sign clear-signs a message, leaving it readable.
 func (s *Service) Sign(req SignRequest) (string, error) {
 	if strings.TrimSpace(req.Text) == "" {
-		return "", fmt.Errorf("nothing to sign")
+		return "", errors.New("nothing to sign")
 	}
 
 	signer, err := s.kr.unlocked(req.Key, req.Passphrase)
@@ -348,7 +346,7 @@ func (s *Service) Sign(req SignRequest) (string, error) {
 // Verify checks a clear-signed message against the keyring.
 func (s *Service) Verify(message string) (Decrypted, error) {
 	if strings.TrimSpace(message) == "" {
-		return Decrypted{}, fmt.Errorf("paste a signed message first")
+		return Decrypted{}, errors.New("paste a signed message first")
 	}
 	return verifyMessage(message, s.kr.publicList())
 }

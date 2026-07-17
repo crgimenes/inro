@@ -14,7 +14,7 @@ const ENCRYPTED_HEADER = "-----BEGIN PGP MESSAGE-----";
 const SIGNED_HEADER = "-----BEGIN PGP SIGNED MESSAGE-----";
 
 let keys = [];
-let settings = { defaultKey: "", dataDir: "" };
+let settings = { defaultKey: "" };
 let selectedKey = null;
 
 // lastInfo is WhoCanOpen's answer for the encrypted message currently in the
@@ -323,10 +323,13 @@ function fillSelect(select, list) {
   const previous = select.value;
   select.replaceChildren();
   for (const k of list) {
-    select.append(option(k.fingerprint, keyLabel(k)));
+    const o = option(k.fingerprint, k.expired ? `${keyLabel(k)} [expired]` : keyLabel(k));
+    o.disabled = Boolean(k.expired);
+    select.append(o);
   }
   const wanted = previous || settings.defaultKey;
-  if (wanted && list.some((k) => k.fingerprint === wanted)) {
+  const usable = list.some((k) => k.fingerprint === wanted && !k.expired);
+  if (wanted && usable) {
     select.value = wanted;
   }
 }
@@ -672,6 +675,12 @@ function renderKeyList() {
     title.textContent = k.nickname ? `${k.nickname} - ${k.identity}` : k.identity;
     row.append(title);
 
+    if (k.expired) {
+      const badge = document.createElement("span");
+      badge.className = "badge text-bg-danger";
+      badge.textContent = "expired";
+      row.append(badge);
+    }
     if (k.certifiedBy && k.certifiedBy.length > 0) {
       const badge = document.createElement("span");
       badge.className = "badge text-bg-success";
@@ -688,7 +697,7 @@ function renderKeyList() {
 
     const id = document.createElement("small");
     id.className = "text-muted font-monospace d-block mt-1";
-    const expiry = k.expires ? ` · expires ${k.expires}` : "";
+    const expiry = k.expires ? ` · ${k.expired ? "expired" : "expires"} ${k.expires}` : "";
     id.textContent = `${k.keyId} · created ${k.created}${expiry}`;
 
     item.append(row, id);
@@ -709,13 +718,15 @@ async function refreshKeys() {
 
 function openKeyPage(k) {
   selectedKey = k;
+  disarmDelete();
 
   $("key-title").textContent = k.nickname ? `${k.nickname} - ${k.identity}` : k.identity;
   $("key-private-badge").classList.toggle("d-none", !k.private);
   $("key-fingerprint").textContent = k.fingerprint;
 
-  const expiry = k.expires ? ` · expires ${k.expires}` : " · never expires";
+  const expiry = k.expires ? ` · ${k.expired ? "EXPIRED" : "expires"} ${k.expires}` : " · never expires";
   $("key-dates").textContent = `${k.keyId} · created ${k.created}${expiry}`;
+  $("key-dates").classList.toggle("text-danger", Boolean(k.expired));
 
   const cert = $("key-certified");
   if (k.certifiedBy && k.certifiedBy.length > 0) {
@@ -778,14 +789,31 @@ $("key-export-copy").addEventListener("click", () =>
   }),
 );
 
+// confirm() never shows in the app's webview (glaze implements no JS dialog
+// panels), so deletion confirms on the button itself: first click arms it,
+// a second click within a few seconds deletes, anything else disarms.
+let deleteArmTimer = null;
+
+function disarmDelete() {
+  clearTimeout(deleteArmTimer);
+  deleteArmTimer = null;
+  $("key-delete").className = "btn btn-outline-danger btn-sm ms-auto";
+  $("key-delete").innerHTML = '<i class="bi bi-trash"></i> Delete key';
+}
+
 $("key-delete").addEventListener("click", () =>
   run(async () => {
-    if (!confirm(`Delete the key of ${selectedKey.identity}?`)) {
+    if (deleteArmTimer === null) {
+      $("key-delete").className = "btn btn-danger btn-sm ms-auto";
+      $("key-delete").innerHTML = '<i class="bi bi-trash-fill"></i> Click again to delete';
+      deleteArmTimer = setTimeout(disarmDelete, 4000);
       return;
     }
+    disarmDelete();
     await window.inro_delete_key(selectedKey.fingerprint);
     await refreshKeys();
     showPage("keys");
+    showInfo(`Deleted the key of ${selectedKey.identity}.`);
   }),
 );
 

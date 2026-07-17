@@ -574,3 +574,103 @@ func TestCertifyKey(t *testing.T) {
 		t.Error("certify with wrong passphrase succeeded")
 	}
 }
+
+// TestServiceSurface covers the thin UI-facing service methods: the settings
+// slice, the listing, the metadata write path and the About metadata.
+func TestServiceSurface(t *testing.T) {
+	svc, alice, _ := newTestService(t)
+	svc.cfg.DefaultKey = strings.ToLower(alice.Fingerprint)
+
+	settings, err := svc.Settings()
+	if err != nil {
+		t.Fatalf("Settings: %v", err)
+	}
+	if settings.DefaultKey != alice.Fingerprint {
+		t.Errorf("DefaultKey = %q, want %q upper-cased", settings.DefaultKey, alice.Fingerprint)
+	}
+
+	err = svc.SetKeyMeta(alice.Fingerprint, "me", "my own key")
+	if err != nil {
+		t.Fatalf("SetKeyMeta: %v", err)
+	}
+
+	list, err := svc.ListKeys()
+	if err != nil {
+		t.Fatalf("ListKeys: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("got %d keys, want 2", len(list))
+	}
+	found := false
+	for _, k := range list {
+		if k.Fingerprint == alice.Fingerprint && k.Nickname == "me" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("nickname set through the service did not surface in the listing")
+	}
+
+	about, err := svc.About()
+	if err != nil {
+		t.Fatalf("About: %v", err)
+	}
+	if about.Version == "" || about.GoVersion == "" {
+		t.Errorf("about = %+v, want version and go version filled", about)
+	}
+	foundDep := false
+	for _, dep := range about.Deps {
+		if strings.Contains(dep, "go-crypto") {
+			foundDep = true
+		}
+	}
+	if !foundDep {
+		t.Errorf("deps = %v, want go-crypto listed", about.Deps)
+	}
+}
+
+// TestExpiredKeyIsFlagged checks that an expired key is reported as such in
+// the listing, since the UI marks it and blocks selecting it.
+func TestExpiredKeyIsFlagged(t *testing.T) {
+	svc, alice, _ := newTestService(t)
+
+	past := time.Now().Add(-48 * time.Hour)
+	cfg := &packet.Config{
+		Algorithm:       packet.PubKeyAlgoEdDSA,
+		Time:            func() time.Time { return past },
+		KeyLifetimeSecs: 86400, // one day: expired yesterday
+	}
+
+	e, err := openpgp.NewEntity("Old", "", "old@example.com", cfg)
+	if err != nil {
+		t.Fatalf("NewEntity: %v", err)
+	}
+	armored, err := serializeEntity(e)
+	if err != nil {
+		t.Fatalf("serializeEntity: %v", err)
+	}
+	imported, err := svc.ImportKey(armored)
+	if err != nil {
+		t.Fatalf("ImportKey: %v", err)
+	}
+
+	var old, fresh KeyInfo
+	for _, k := range svc.kr.List() {
+		if k.Fingerprint == imported[0].Fingerprint {
+			old = k
+		}
+		if k.Fingerprint == alice.Fingerprint {
+			fresh = k
+		}
+	}
+
+	if !old.Expired {
+		t.Errorf("key that expired yesterday is not flagged: %+v", old)
+	}
+	if old.Expires == "" {
+		t.Error("expired key lists no expiry date")
+	}
+	if fresh.Expired {
+		t.Errorf("key without expiry is flagged as expired: %+v", fresh)
+	}
+}

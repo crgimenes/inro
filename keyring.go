@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -36,6 +37,7 @@ type KeyInfo struct {
 	Private     bool     `json:"private"`
 	Created     string   `json:"created"`
 	Expires     string   `json:"expires"`
+	Expired     bool     `json:"expired"`
 	CertifiedBy []string `json:"certifiedBy"`
 }
 
@@ -149,7 +151,7 @@ func (k *Keyring) loadMeta() error {
 
 	err := f.RegisterBuiltin("key", func(_ context.Context, args []filo.Value) (filo.Value, error) {
 		if len(args) < 1 {
-			return filo.VBool(false), fmt.Errorf("key: fingerprint is required")
+			return filo.VBool(false), errors.New("key: fingerprint is required")
 		}
 
 		fingerprint, err := args[0].AsString()
@@ -271,6 +273,7 @@ func (k *Keyring) List() []KeyInfo {
 
 	keys := make([]KeyInfo, 0, len(k.entities))
 	for fp, e := range k.entities {
+		expires, expired := expiryOf(e)
 		keys = append(keys, KeyInfo{
 			Fingerprint: fp,
 			KeyID:       e.PrimaryKey.KeyIdString(),
@@ -279,7 +282,8 @@ func (k *Keyring) List() []KeyInfo {
 			Note:        k.meta[fp].Note,
 			Private:     e.PrivateKey != nil,
 			Created:     e.PrimaryKey.CreationTime.Format("2006-01-02"),
-			Expires:     expiryOf(e),
+			Expires:     expires,
+			Expired:     expired,
 			CertifiedBy: k.certifiedByLocked(e),
 		})
 	}
@@ -306,7 +310,7 @@ func (k *Keyring) Import(armored string) ([]KeyInfo, error) {
 		return nil, fmt.Errorf("parse key: %w", err)
 	}
 	if len(el) == 0 {
-		return nil, fmt.Errorf("no keys found in that text")
+		return nil, errors.New("no keys found in that text")
 	}
 
 	imported := make([]KeyInfo, 0, len(el))
@@ -528,15 +532,15 @@ func (k *Keyring) canOpen(ids []uint64) []*openpgp.Entity {
 	return out
 }
 
-// expiryOf returns the primary key's expiry date, or "" for a key that never
-// expires.
-func expiryOf(e *openpgp.Entity) string {
+// expiryOf returns the primary key's expiry date ("" for a key that never
+// expires) and whether that date has already passed.
+func expiryOf(e *openpgp.Entity) (string, bool) {
 	selfSig, _ := e.PrimarySelfSignature()
 	if selfSig == nil || selfSig.KeyLifetimeSecs == nil || *selfSig.KeyLifetimeSecs == 0 {
-		return ""
+		return "", false
 	}
 	t := e.PrimaryKey.CreationTime.Add(time.Duration(*selfSig.KeyLifetimeSecs) * time.Second)
-	return t.Format("2006-01-02")
+	return t.Format("2006-01-02"), time.Now().After(t)
 }
 
 // certifiedByLocked lists who vouches for this key: the identities of keyring

@@ -1,7 +1,8 @@
 # inro
 
-A desktop front end for PGP: encrypt, sign, verify and decrypt short messages,
-and keep a list of the keys of the people you write to.
+Self-contained PGP for the desktop: encrypt, sign, verify and decrypt
+messages, and keep the keys of the people you write to. The OpenPGP engine is
+built in — nothing else to install, and gpg is never needed.
 
 An *inro* (印籠) is the small case that used to hang from an obi to carry a
 personal seal and its ink. This one carries yours.
@@ -10,13 +11,30 @@ Go, cgo-free. The window is [glaze](https://github.com/crgimenes/glaze) (the
 platform webview via purego), the UI is embedded HTML, the crypto is
 [ProtonMail/go-crypto](https://github.com/ProtonMail/go-crypto), and the
 configuration is [Filo](https://github.com/crgimenes/filo). One binary, no
-files alongside it, no gpg required.
+files alongside it.
 
 ## Install
+
+On macOS, with [Homebrew](https://brew.sh):
+
+```sh
+brew install --cask crgimenes/tap/inro
+```
+
+Or take a binary from the [releases page](https://github.com/crgimenes/inro/releases):
+the macOS app is signed and notarized, Windows and Linux get plain
+executables. Building from source needs only Go — no C toolchain on any
+platform:
 
 ```sh
 go install github.com/crgimenes/inro@latest
 ```
+
+inro carries its own crypto and UI; the one thing it borrows from the system
+is the webview the OS already ships. macOS has it, Windows uses the Edge
+WebView2 runtime (present on any current Windows), and Linux needs GTK with
+WebKitGTK (`libwebkit2gtk-4.1` or GTK 4's `libwebkitgtk-6.0` — one package
+install).
 
 ## Use
 
@@ -48,8 +66,9 @@ to click, because what lands in the field already decides what happens to it:
   sign, or both. The armored result replaces your text, selected and ready
   to copy — with a link to restore the original if you still need it.
 
-Open… loads a message from a file; Save… writes the field to one.
-Cmd/Ctrl+Enter runs the action from anywhere.
+Open loads a message from a file; Save writes the field to one. The same
+actions live in the application menu, and Cmd/Ctrl+Enter runs the primary
+action from anywhere.
 
 Any signature found while decrypting or verifying is reported above the
 result. A signature only reports as valid when the signer's key is in your
