@@ -4,6 +4,8 @@ Self-contained PGP for the desktop: encrypt, sign, verify and decrypt
 messages, and keep the keys of the people you write to. The OpenPGP engine is
 built in — nothing else to install, and gpg is never needed.
 
+![inro generating a key and encrypting a message](assets/demo.gif)
+
 An *inro* (印籠) is the small case that used to hang from an obi to carry a
 personal seal and its ink. This one carries yours.
 
