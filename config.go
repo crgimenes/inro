@@ -21,11 +21,6 @@ type Config struct {
 	// passphrase is typed, so a burst of operations asks only once. Zero
 	// disables the cache and every operation asks again.
 	KeyCacheSeconds int
-
-	// ScreenCaptureProtection keeps the window out of screenshots, screen
-	// recordings and screen sharing where the OS supports it (macOS and
-	// Windows; Linux has no such API).
-	ScreenCaptureProtection bool
 }
 
 // configHome returns the base directory for user configuration, honouring
@@ -69,8 +64,6 @@ func loadConfig() (*Config, error) {
 		DataDir:         filepath.Join(configHome(), "inro"),
 		DefaultKey:      "",
 		KeyCacheSeconds: 300,
-
-		ScreenCaptureProtection: true,
 	}
 
 	name := configPath()
@@ -87,7 +80,6 @@ func loadConfig() (*Config, error) {
 	f.SetGlobal("DataDir", cfg.DataDir)
 	f.SetGlobal("DefaultKey", cfg.DefaultKey)
 	f.SetGlobal("KeyCacheSeconds", cfg.KeyCacheSeconds)
-	f.SetGlobal("ScreenCaptureProtection", cfg.ScreenCaptureProtection)
 
 	b, err := os.ReadFile(filepath.Clean(name))
 	if err != nil {
@@ -105,7 +97,6 @@ func loadConfig() (*Config, error) {
 	cfg.DataDir = expandHome(f.MustGetString("DataDir"))
 	cfg.DefaultKey = f.MustGetString("DefaultKey")
 	cfg.KeyCacheSeconds = f.MustGetInt("KeyCacheSeconds")
-	cfg.ScreenCaptureProtection = f.MustGetBool("ScreenCaptureProtection")
 
 	return cfg, nil
 }

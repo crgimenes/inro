@@ -15,7 +15,6 @@ import (
 	"github.com/crgimenes/devengine/assets"
 	"github.com/crgimenes/glaze"
 	"github.com/crgimenes/glaze/menu"
-	"github.com/crgimenes/native/nocapture"
 )
 
 //go:embed ui
@@ -113,15 +112,6 @@ func main() {
 	w.SetSize(720, 480, glaze.HintMin)
 
 	installMenu(w)
-
-	if cfg.ScreenCaptureProtection {
-		err = nocapture.Protect(w.Window())
-		if errors.Is(err, nocapture.ErrUnsupported) {
-			log.Print("screen-capture protection is not available on this platform")
-		} else if err != nil {
-			log.Printf("screen-capture protection: %v", err)
-		}
-	}
 
 	_, err = glaze.BindMethods(w, "inro", &Service{cfg: cfg, kr: kr, w: w})
 	if err != nil {
