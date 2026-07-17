@@ -90,14 +90,21 @@ func (s *Service) ImportKey(armored string) ([]KeyInfo, error) {
 
 // GenerateKey creates a new key pair (EdDSA/Curve25519) and stores it in the
 // keyring. An empty passphrase leaves the private key unprotected on disk.
-func (s *Service) GenerateKey(name, email, passphrase string) (KeyInfo, error) {
+// expiryDays of zero means the key never expires.
+func (s *Service) GenerateKey(name, email, passphrase string, expiryDays int) (KeyInfo, error) {
 	name = strings.TrimSpace(name)
 	email = strings.TrimSpace(email)
 	if name == "" || email == "" {
 		return KeyInfo{}, errors.New("name and email are required")
 	}
+	if expiryDays < 0 || expiryDays > 36500 {
+		return KeyInfo{}, errors.New("expiry must be between 0 (never) and 36500 days")
+	}
 
-	cfg := &packet.Config{Algorithm: packet.PubKeyAlgoEdDSA}
+	cfg := &packet.Config{
+		Algorithm:       packet.PubKeyAlgoEdDSA,
+		KeyLifetimeSecs: uint32(expiryDays) * 86400,
+	}
 
 	e, err := openpgp.NewEntity(name, "", email, cfg)
 	if err != nil {
@@ -121,6 +128,37 @@ func (s *Service) GenerateKey(name, email, passphrase string) (KeyInfo, error) {
 		return KeyInfo{}, err
 	}
 	return infos[0], nil
+}
+
+// CertifyKey signs the target key's identity with one of the user's own keys
+// — the "I checked, this key really belongs to this person" statement of the
+// web of trust. The certification is stored on the target key, so exporting
+// that key carries it along.
+func (s *Service) CertifyKey(fingerprint, signWith, passphrase string) error {
+	fingerprint = strings.ToUpper(strings.TrimSpace(fingerprint))
+	signWith = strings.ToUpper(strings.TrimSpace(signWith))
+	if fingerprint == signWith {
+		return errors.New("a key cannot certify itself")
+	}
+
+	signer, err := s.kr.unlocked(signWith, passphrase)
+	if err != nil {
+		return err
+	}
+
+	// Work on a fresh copy so a failed signing never leaves a half-mutated
+	// entity in the shared cache.
+	target, err := s.kr.loadEntityFile(fingerprint)
+	if err != nil {
+		return err
+	}
+
+	err = target.SignIdentity(primaryIdentity(target), signer, nil)
+	if err != nil {
+		return fmt.Errorf("certify: %w", err)
+	}
+
+	return s.kr.store(target)
 }
 
 // ExportKey returns the armored public key for a fingerprint.

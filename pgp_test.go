@@ -346,7 +346,7 @@ func TestKeyCache(t *testing.T) {
 func TestGenerateKey(t *testing.T) {
 	svc, _, _ := newTestService(t)
 
-	info, err := svc.GenerateKey("Carol", "carol@example.com", "s3cret")
+	info, err := svc.GenerateKey("Carol", "carol@example.com", "s3cret", 0)
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestGenerateKey(t *testing.T) {
 		t.Errorf("text = %q, want %q", got.Text, "to carol")
 	}
 
-	_, err = svc.GenerateKey("", "", "")
+	_, err = svc.GenerateKey("", "", "", 0)
 	if err == nil {
 		t.Error("GenerateKey with empty name and email should fail")
 	}
@@ -461,4 +461,116 @@ func TestWhoCanOpen(t *testing.T) {
 		t.Error("Bob's key is passphrase-protected and not cached; want Locked=true")
 	}
 	_ = alice
+}
+
+// TestGenerateKeyExpiry checks that an expiry lands on the self-signature and
+// surfaces in the key listing.
+func TestGenerateKeyExpiry(t *testing.T) {
+	svc, _, _ := newTestService(t)
+
+	info, err := svc.GenerateKey("Dave", "dave@example.com", "", 365)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	if info.Fingerprint == "" {
+		t.Fatal("no fingerprint returned")
+	}
+
+	var listed KeyInfo
+	for _, k := range svc.kr.List() {
+		if k.Fingerprint == info.Fingerprint {
+			listed = k
+		}
+	}
+	if listed.Expires == "" {
+		t.Fatal("key generated with expiry lists no expiry date")
+	}
+	want := time.Now().AddDate(0, 0, 365).Format("2006-01-02")
+	if listed.Expires != want {
+		t.Errorf("expires = %q, want %q", listed.Expires, want)
+	}
+
+	forever, err := svc.GenerateKey("Eve", "eve@example.com", "", 0)
+	if err != nil {
+		t.Fatalf("GenerateKey without expiry: %v", err)
+	}
+	for _, k := range svc.kr.List() {
+		if k.Fingerprint == forever.Fingerprint && k.Expires != "" {
+			t.Errorf("key without expiry lists %q", k.Expires)
+		}
+	}
+
+	_, err = svc.GenerateKey("F", "f@example.com", "", -1)
+	if err == nil {
+		t.Error("negative expiry accepted")
+	}
+}
+
+// TestCertifyKey covers the web-of-trust flow: Alice certifies Bob's key, the
+// certification is listed, survives a reopen, and travels with the export.
+func TestCertifyKey(t *testing.T) {
+	svc, alice, bob := newTestService(t)
+
+	err := svc.CertifyKey(bob.Fingerprint, alice.Fingerprint, testPassphrase)
+	if err != nil {
+		t.Fatalf("CertifyKey: %v", err)
+	}
+
+	certifiers := func(list []KeyInfo, fp string) []string {
+		for _, k := range list {
+			if k.Fingerprint == fp {
+				return k.CertifiedBy
+			}
+		}
+		return nil
+	}
+
+	got := certifiers(svc.kr.List(), bob.Fingerprint)
+	if len(got) != 1 || !strings.Contains(got[0], "Alice") {
+		t.Fatalf("CertifiedBy = %v, want Alice", got)
+	}
+
+	// The certification must be on disk, not only in memory.
+	reopened, err := openKeyring(svc.cfg.DataDir, 0)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	got = certifiers(reopened.List(), bob.Fingerprint)
+	if len(got) != 1 || !strings.Contains(got[0], "Alice") {
+		t.Fatalf("after reopen, CertifiedBy = %v, want Alice", got)
+	}
+
+	// And it travels with the exported public key.
+	exported, err := svc.ExportKey(bob.Fingerprint)
+	if err != nil {
+		t.Fatalf("ExportKey: %v", err)
+	}
+	other, err := openKeyring(t.TempDir(), 0)
+	if err != nil {
+		t.Fatalf("second keyring: %v", err)
+	}
+	_, err = other.Import(exported)
+	if err != nil {
+		t.Fatalf("import exported bob: %v", err)
+	}
+	_, err = other.Import(newTestKey(t, "Alice", "alice@example.com"))
+	if err != nil {
+		t.Fatalf("import fresh alice: %v", err)
+	}
+	// The second keyring has a DIFFERENT Alice key, so the certification must
+	// NOT verify there: vouching is per key, not per name.
+	got = certifiers(other.List(), bob.Fingerprint)
+	if len(got) != 0 {
+		t.Errorf("certification verified against an unrelated key: %v", got)
+	}
+
+	err = svc.CertifyKey(bob.Fingerprint, bob.Fingerprint, testPassphrase)
+	if err == nil {
+		t.Error("a key certified itself")
+	}
+
+	err = svc.CertifyKey(bob.Fingerprint, alice.Fingerprint, "wrong")
+	if err == nil {
+		t.Error("certify with wrong passphrase succeeded")
+	}
 }

@@ -20,27 +20,35 @@ go install github.com/crgimenes/inro@latest
 
 ## Use
 
-On first run inro opens the **Keys** tab: generate your key pair right there
-(EdDSA/Curve25519), or import keys you already have — paste an armored key or
-open a `.asc` file. Keys exported from gpg import fine
-(`gpg --armor --export-secret-keys you@example.com`).
+On first run inro opens the **Keys** page: generate your key pair right
+there — EdDSA/Curve25519, an expiry if you want one, and a passphrase set in
+a confirm-twice window with an honest strength estimate — or import keys you
+already have: paste an armored key or open a `.asc` file. Keys exported from
+gpg import fine (`gpg --armor --export-secret-keys you@example.com`).
 
-Then everything happens on the **Message** screen: input on the left, result
-on the right. There is no mode to choose and usually nothing to click,
-because what lands in the input already decides what happens to it:
+Each key has its own page: nickname and note, export, delete — and
+**certification**: sign a friend's key with yours to state that you checked
+it really belongs to them. Certifications travel with the exported key, and
+inro shows who, among the keys you hold, vouches for each one.
 
-- **A signed message** is verified the moment it is pasted. Zero clicks.
+Then everything happens on the **Message** page: one text field, like a
+translator with a single box. There is no mode to choose and usually nothing
+to click, because what lands in the field already decides what happens to it:
+
+- **A signed message** is verified the moment it is pasted, and the readable
+  text takes its place. Zero clicks.
 - **An encrypted message** names its own recipients, so inro finds which of
   your keys opens it by itself. If that key needs no passphrase — or you
   typed it recently — the message is decrypted on the spot; otherwise the
-  only question inro ever asks, the passphrase, is already focused and Enter
-  answers it. Messages protected by a shared passphrase instead of a key
-  work too.
+  only question inro ever asks, the passphrase, appears in its own window,
+  pinentry-style: a wrong one is reported right there and the window stays
+  for another try. Messages protected by a shared passphrase instead of a
+  key work too.
 - **Plain text** goes out: pick recipients to *Encrypt*, flip *Sign as* to
-  sign, or both. Signing alone clear-signs the message — it stays readable
-  and carries its signature. The result comes out selected, ready to copy.
+  sign, or both. The armored result replaces your text, selected and ready
+  to copy — with a link to restore the original if you still need it.
 
-Open… loads a message from a file; Save… writes the result to one.
+Open… loads a message from a file; Save… writes the field to one.
 Cmd/Ctrl+Enter runs the action from anywhere.
 
 Any signature found while decrypting or verifying is reported above the
@@ -86,7 +94,7 @@ Every setting is optional; the defaults are shown.
 
 ## Status
 
-Early but whole: key generation, import/export/delete, encrypt, decrypt
-(including passphrase-protected messages), sign, verify, automatic key
-selection, and the unlocked-key cache all work. Not there yet: key revocation
-and expiry management.
+Early but whole: key generation (with expiry), import/export/delete,
+certification, encrypt, decrypt (including passphrase-protected messages),
+sign, verify, automatic key selection, and the unlocked-key cache all work.
+Not there yet: key revocation, extending expiry on an existing key.

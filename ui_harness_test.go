@@ -44,6 +44,15 @@ func TestUIHarness(t *testing.T) {
 		w.Header().Set("Content-Type", "text/javascript")
 		_, _ = w.Write(b)
 	})
+	mux.HandleFunc("/style.css", func(w http.ResponseWriter, _ *http.Request) {
+		b, err := os.ReadFile("ui/style.css")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/css")
+		_, _ = w.Write(b)
+	})
 	mux.HandleFunc("/call/", callHandler(svc))
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		b, err := os.ReadFile("ui/index.html")
@@ -80,7 +89,7 @@ const bridgeJS = `<script>
   };
   for (const n of ["settings", "list_keys", "import_key", "export_key", "delete_key",
                    "set_key_meta", "who_can_open", "encrypt", "decrypt", "sign",
-                   "verify", "generate_key", "open_text_file", "save_text_file"]) {
+                   "verify", "generate_key", "certify_key", "open_text_file", "save_text_file"]) {
     window["inro_" + n] = inroCall(n);
   }
 </script>`
@@ -122,7 +131,13 @@ func callHandler(svc *Service) http.HandlerFunc {
 			case "who_can_open":
 				return svc.WhoCanOpen(str(0))
 			case "generate_key":
-				return svc.GenerateKey(str(0), str(1), str(2))
+				var days int
+				if len(args) > 3 {
+					_ = json.Unmarshal(args[3], &days)
+				}
+				return svc.GenerateKey(str(0), str(1), str(2), days)
+			case "certify_key":
+				return nil, svc.CertifyKey(str(0), str(1), str(2))
 			case "verify":
 				return svc.Verify(str(0))
 			case "encrypt":

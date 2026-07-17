@@ -1,12 +1,12 @@
 // UI for inro. Every call into Go goes through the functions glaze binds on
 // window as inro_<snake_case_method>.
 //
-// One message screen: what you put in the input decides what happens to it,
-// and whatever can happen without the user happens by itself. A signed
-// message is verified the moment it lands. An encrypted message picks its own
-// key (the message names its recipients) and is opened immediately when that
-// key needs no passphrase; otherwise the only question the app ever asks —
-// the passphrase — is focused and Enter answers it.
+// One text field, several pages. What lands in the field decides what happens
+// to it — a signed message is verified on the spot, an encrypted one picks its
+// own key and is opened as soon as that key is usable, plain text goes out —
+// and the result replaces the field, like a translator with a single box.
+// The only question inro ever asks, the passphrase, lives in its own window,
+// which doubles as gpg-style entry-plus-confirm when a new one is being set.
 
 const $ = (id) => document.getElementById(id);
 
@@ -15,11 +15,17 @@ const SIGNED_HEADER = "-----BEGIN PGP SIGNED MESSAGE-----";
 
 let keys = [];
 let settings = { defaultKey: "", dataDir: "" };
-let selected = null;
+let selectedKey = null;
 
 // lastInfo is WhoCanOpen's answer for the encrypted message currently in the
-// input: which of my keys open it, and whether each needs a passphrase now.
+// field: which of my keys open it, and whether each needs a passphrase now.
 let lastInfo = null;
+
+// restoreText holds the field's content from before an outgoing transform
+// (encrypt/sign), the one case where the original exists nowhere else.
+let restoreText = null;
+
+// --- Alerts and banner --------------------------------------------------------
 
 function showError(err) {
   const box = $("alert");
@@ -37,28 +43,233 @@ function clearAlert() {
   $("alert").className = "alert d-none";
 }
 
-// run wraps a bound call so a rejected promise from Go lands in the alert box
-// instead of the console. A "passphrase required" rejection is not an error:
-// it is the one question the app asks, so it becomes a focused prompt.
 async function run(fn) {
   clearAlert();
   try {
     await fn();
   } catch (err) {
-    const msg = String(err.message || err);
-    if (/passphrase required/i.test(msg)) {
-      askPassphrase(msg);
-      return;
-    }
     showError(err);
   }
 }
 
-function askPassphrase(hint) {
-  $("ctl-passphrase").classList.remove("d-none");
-  $("pass-hint").textContent = hint;
-  $("passphrase").focus();
+// banner shows the state of the message in the field: signature verdicts and
+// what just happened to it.
+function banner(kind, text, withRestore = false) {
+  const box = $("banner");
+  box.className = `alert alert-${kind} py-2 small mb-2`;
+  box.replaceChildren(document.createTextNode(text));
+
+  if (withRestore && restoreText !== null) {
+    box.append(" ");
+    const a = document.createElement("a");
+    a.href = "#";
+    a.textContent = "Restore original text";
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      setText(restoreText);
+      restoreText = null;
+      hideBanner();
+    });
+    box.append(a);
+  }
 }
+
+function hideBanner() {
+  $("banner").className = "d-none";
+}
+
+function signatureBanner(sig) {
+  if (!sig.signed) {
+    banner("secondary", "Decrypted. The message was not signed.");
+    return;
+  }
+  if (sig.verified) {
+    banner("success", `Valid signature from ${sig.signedBy} (${sig.keyId}).`);
+    return;
+  }
+  const who = sig.signedBy || (sig.keyId ? `key ${sig.keyId}` : "");
+  banner(
+    "danger",
+    who
+      ? `Signature from ${who} could NOT be verified: ${sig.reason}`
+      : `Signature could NOT be verified: ${sig.reason}`,
+  );
+}
+
+// --- Passphrase window --------------------------------------------------------
+
+let passResolve = null;
+let passReject = null;
+let passOp = null;
+
+// askPass opens the passphrase window. create=true adds the confirm field and
+// strength meter, for setting a NEW passphrase; confirmation of an existing
+// one would only confirm a typo twice. When op is given, OK runs it with the
+// typed passphrase and a wrong one is reported INSIDE the window — it stays
+// open for another try, like pinentry — resolving with op's result. Without
+// op it resolves with the passphrase itself. Cancel resolves null either way.
+function askPass({ title, hint, create = false, op = null }) {
+  return new Promise((resolve, reject) => {
+    passResolve = resolve;
+    passReject = reject;
+    passOp = op;
+
+    $("pass-title").textContent = title;
+    $("pass-hint").textContent = hint || "";
+    $("pass-create").classList.toggle("d-none", !create);
+    $("pass-input").value = "";
+    $("pass-confirm").value = "";
+    $("pass-error").classList.add("d-none");
+    updateMeter();
+
+    bootstrap.Modal.getOrCreateInstance($("pass-modal")).show();
+  });
+}
+
+function passStrength(p) {
+  if (!p) {
+    return { pct: 0, cls: "bg-secondary", label: "Empty: the key will be stored unprotected." };
+  }
+  let pool = 0;
+  if (/[a-z]/.test(p)) pool += 26;
+  if (/[A-Z]/.test(p)) pool += 26;
+  if (/[0-9]/.test(p)) pool += 10;
+  if (/[^A-Za-z0-9]/.test(p)) pool += 33;
+  const bits = Math.round(p.length * Math.log2(pool));
+  if (bits < 40) return { pct: 25, cls: "bg-danger", label: `Weak (~${bits} bits).` };
+  if (bits < 60) return { pct: 50, cls: "bg-warning", label: `Fair (~${bits} bits).` };
+  if (bits < 80) return { pct: 75, cls: "bg-info", label: `Good (~${bits} bits).` };
+  return { pct: 100, cls: "bg-success", label: `Strong (~${bits} bits).` };
+}
+
+function updateMeter() {
+  const s = passStrength($("pass-input").value);
+  $("pass-meter").style.width = `${s.pct}%`;
+  $("pass-meter").className = `progress-bar ${s.cls}`;
+  $("pass-strength").textContent = s.label;
+}
+
+function passError(text) {
+  $("pass-error").textContent = text;
+  $("pass-error").classList.remove("d-none");
+}
+
+function finishPass(value) {
+  const resolve = passResolve;
+  passResolve = null;
+  passReject = null;
+  passOp = null;
+  bootstrap.Modal.getOrCreateInstance($("pass-modal")).hide();
+  if (resolve) {
+    resolve(value);
+  }
+}
+
+function isWrongPassphrase(msg) {
+  return /passphrase required|unlock|checksum|wrong passphrase/i.test(msg);
+}
+
+$("pass-ok").addEventListener("click", async () => {
+  const create = !$("pass-create").classList.contains("d-none");
+  const value = $("pass-input").value;
+  if (create && value !== $("pass-confirm").value) {
+    passError("The passphrases do not match.");
+    return;
+  }
+
+  if (!passOp) {
+    finishPass(value);
+    return;
+  }
+
+  // Run the operation from inside the window: a wrong passphrase keeps it
+  // open for another try instead of closing and reopening.
+  $("pass-ok").disabled = true;
+  try {
+    const result = await passOp(value);
+    finishPass(result);
+  } catch (err) {
+    const msg = String(err.message || err);
+    if (isWrongPassphrase(msg)) {
+      passError("Wrong passphrase, try again.");
+      $("pass-input").select();
+      return;
+    }
+    const reject = passReject;
+    passResolve = null;
+    passReject = null;
+    passOp = null;
+    bootstrap.Modal.getOrCreateInstance($("pass-modal")).hide();
+    if (reject) {
+      reject(err);
+    }
+  } finally {
+    $("pass-ok").disabled = false;
+  }
+});
+$("pass-cancel").addEventListener("click", () => finishPass(null));
+$("pass-input").addEventListener("input", updateMeter);
+$("pass-modal").addEventListener("shown.bs.modal", () => $("pass-input").focus());
+$("pass-modal").addEventListener("hidden.bs.modal", () => {
+  $("pass-input").value = "";
+  $("pass-confirm").value = "";
+  if (passResolve) {
+    // Closed some other way (Esc): treat as cancel.
+    const resolve = passResolve;
+    passResolve = null;
+    passReject = null;
+    passOp = null;
+    resolve(null);
+  }
+});
+for (const id of ["pass-input", "pass-confirm"]) {
+  $(id).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      $("pass-ok").click();
+    }
+  });
+}
+
+// withPassphrase runs fn with no passphrase first (the unlocked-key cache may
+// make that enough); when fn instead demands one, the window takes over and
+// drives the retries. Resolves with fn's result, or null when cancelled — so
+// fn must resolve to something non-null on success.
+async function withPassphrase(fn, title) {
+  try {
+    return await fn("");
+  } catch (err) {
+    const msg = String(err.message || err);
+    if (!/passphrase required/i.test(msg)) {
+      throw err;
+    }
+    const hint = msg.replace(/^passphrase required( to unlock)?[:\s]*/i, "");
+    return askPass({ title, hint, op: fn });
+  }
+}
+
+// --- Pages ---------------------------------------------------------------------
+
+const PAGES = ["message", "keys", "generate", "import", "key"];
+
+function showPage(name) {
+  for (const p of PAGES) {
+    $(`page-${p}`).classList.toggle("d-none", p !== name);
+  }
+  const onKeys = name !== "message";
+  $("nav-message").className = `btn btn-sm ${onKeys ? "btn-outline-secondary" : "btn-secondary"}`;
+  $("nav-keys").className = `btn btn-sm ${onKeys ? "btn-secondary" : "btn-outline-secondary"}`;
+}
+
+$("nav-message").addEventListener("click", () => showPage("message"));
+$("nav-keys").addEventListener("click", () => showPage("keys"));
+$("goto-generate").addEventListener("click", () => showPage("generate"));
+$("goto-import").addEventListener("click", () => showPage("import"));
+for (const btn of document.querySelectorAll(".inro-back")) {
+  btn.addEventListener("click", () => showPage("keys"));
+}
+
+// --- The message field -----------------------------------------------------------
 
 function keyLabel(k) {
   const name = k.nickname ? `${k.nickname} — ${k.identity}` : k.identity;
@@ -80,11 +291,9 @@ function option(value, text) {
 function fillSelect(select, list) {
   const previous = select.value;
   select.replaceChildren();
-
   for (const k of list) {
     select.append(option(k.fingerprint, keyLabel(k)));
   }
-
   const wanted = previous || settings.defaultKey;
   if (wanted && list.some((k) => k.fingerprint === wanted)) {
     select.value = wanted;
@@ -95,8 +304,6 @@ function selectedValues(select) {
   return Array.from(select.selectedOptions).map((o) => o.value);
 }
 
-// detect classifies the input. The headers are what PGP itself puts there, so
-// this never has to guess.
 function detect(text) {
   const t = text.trim();
   if (t === "") {
@@ -111,8 +318,6 @@ function detect(text) {
   return "plain";
 }
 
-// isComplete tells whether an armored block has arrived whole, so automatic
-// actions never fire on a half-pasted message.
 function isComplete(text, mode) {
   if (mode === "encrypted") {
     return text.includes("-----END PGP MESSAGE-----");
@@ -130,20 +335,15 @@ const BADGES = {
   signed: ["Signed message", "text-bg-primary"],
 };
 
-// openCandidate returns the entry in lastInfo for the key the open-key select
-// currently points at.
-function openCandidate() {
-  if (!lastInfo) {
-    return null;
-  }
-  const fp = $("open-key").value;
-  return lastInfo.keys.find((k) => k.fingerprint === fp) || lastInfo.keys[0] || null;
+// setText replaces the field programmatically, without triggering the
+// automatic flow that reacts to typing and pasting.
+function setText(value) {
+  $("text").value = value;
+  render();
 }
 
-// plan works out the single action available for the current input and
-// controls: what the button says, whether it can run, and why not.
 function plan() {
-  const mode = detect($("in-text").value);
+  const mode = detect($("text").value);
 
   if (mode === "encrypted") {
     if (lastInfo && !lastInfo.symmetric && lastInfo.keys.length === 0) {
@@ -151,7 +351,7 @@ function plan() {
         mode,
         label: "Decrypt",
         enabled: false,
-        hint: "This message is not encrypted to any key in your keyring.",
+        hint: "Not encrypted to any key in your keyring.",
       };
     }
     return { mode, label: "Decrypt", enabled: true, hint: "" };
@@ -177,17 +377,9 @@ function plan() {
   if (signing) {
     return { mode, label: "Sign", enabled: true, hint: "The message stays readable." };
   }
-
-  return {
-    mode,
-    label: "Encrypt",
-    enabled: false,
-    hint: "Pick a recipient, or turn on Sign.",
-  };
+  return { mode, label: "Encrypt", enabled: false, hint: "Pick a recipient, or turn on Sign." };
 }
 
-// render points the screen at the current plan: only the controls the action
-// actually needs are on show.
 function render() {
   const p = plan();
 
@@ -196,61 +388,98 @@ function render() {
   $("detected").className = `badge ${badgeClass}`;
 
   const plain = p.mode === "plain" || p.mode === "empty";
-  const signing = plain && $("sign-toggle").checked;
-
-  const candidate = openCandidate();
-  const showKeyPick = p.mode === "encrypted" && lastInfo && lastInfo.keys.length > 1;
-  const needsPass =
-    signing ||
-    (p.mode === "encrypted" &&
-      (!lastInfo || lastInfo.symmetric || (candidate && candidate.locked)));
-
   $("ctl-plain").classList.toggle("d-none", !plain);
-  $("ctl-encrypted").classList.toggle("d-none", !showKeyPick);
-  $("ctl-passphrase").classList.toggle("d-none", !needsPass);
-  $("sign-key").disabled = !signing;
-  if (!needsPass) {
-    $("pass-hint").textContent = "";
-  }
+  $("ctl-encrypted").classList.toggle(
+    "d-none",
+    !(p.mode === "encrypted" && lastInfo && lastInfo.keys.length > 1),
+  );
+  $("sign-key").disabled = !(plain && $("sign-toggle").checked);
 
   $("run").textContent = p.label;
   $("run").disabled = !p.enabled;
   $("hint").textContent = p.hint;
 }
 
-function renderSignature(sig) {
-  const box = $("sig");
-  box.classList.remove("d-none");
+// --- Operations -----------------------------------------------------------------
 
-  if (!sig.signed) {
-    box.className = "alert alert-secondary py-2 small mb-2";
-    box.textContent = "Not signed.";
+async function doDecrypt(passphrase) {
+  return window.inro_decrypt({
+    message: $("text").value,
+    key: $("open-key").value,
+    passphrase: passphrase,
+  });
+}
+
+async function decryptFlow() {
+  const res = await withPassphrase((pass) => doDecrypt(pass), "Unlock key");
+  if (res === null) {
+    return;
+  }
+  restoreText = null;
+  setText(res.text);
+  signatureBanner(res.signature);
+}
+
+async function verifyFlow() {
+  const res = await window.inro_verify($("text").value);
+  restoreText = null;
+  setText(res.text);
+  signatureBanner(res.signature);
+}
+
+async function sendFlow() {
+  const text = $("text").value;
+  const recipients = selectedValues($("recipients"));
+  const signing = $("sign-toggle").checked;
+  const signKey = $("sign-key").value;
+
+  let out;
+  if (recipients.length === 0) {
+    out = await withPassphrase(
+      (pass) => window.inro_sign({ text: text, key: signKey, passphrase: pass }),
+      "Unlock signing key",
+    );
+  } else {
+    out = await withPassphrase(
+      (pass) =>
+        window.inro_encrypt({
+          text: text,
+          recipients: recipients,
+          signWith: signing ? signKey : "",
+          passphrase: pass,
+        }),
+      "Unlock signing key",
+    );
+  }
+  if (out === null) {
     return;
   }
 
-  if (sig.verified) {
-    box.className = "alert alert-success py-2 small mb-2";
-    box.textContent = `Valid signature from ${sig.signedBy} (${sig.keyId}).`;
-    return;
+  restoreText = text;
+  setText(out);
+
+  const what =
+    recipients.length === 0
+      ? "Signed."
+      : `Encrypted to ${recipients.map(labelFor).join(", ")}${signing ? ", signed" : ""}.`;
+  banner("secondary", `${what} The result replaced your text — copy or save it.`, true);
+
+  $("text").select();
+}
+
+async function execute() {
+  const p = plan();
+  hideBanner();
+  if (p.mode === "encrypted") {
+    return decryptFlow();
   }
-
-  box.className = "alert alert-danger py-2 small mb-2";
-  const who = sig.signedBy || (sig.keyId ? `key ${sig.keyId}` : "");
-  box.textContent = who
-    ? `Signature from ${who} could NOT be verified: ${sig.reason}`
-    : `Signature could NOT be verified: ${sig.reason}`;
+  if (p.mode === "signed") {
+    return verifyFlow();
+  }
+  return sendFlow();
 }
 
-function hideSignature() {
-  $("sig").classList.add("d-none");
-}
-
-function showResult(res) {
-  $("out-text").value = res.text;
-  renderSignature(res.signature);
-}
-
-// --- The automatic path -----------------------------------------------------
+// --- The automatic path -----------------------------------------------------------
 
 let autoTimer = null;
 let autoBusy = false;
@@ -262,27 +491,23 @@ function scheduleAuto() {
   }, 250);
 }
 
-// autoRun does whatever the pasted input allows without asking anything:
-// verify runs outright; decrypt runs when a key is ready, and otherwise the
-// passphrase prompt is put in front of the user.
 async function autoRun() {
   if (autoBusy) {
     return;
   }
   autoBusy = true;
   try {
-    const text = $("in-text").value;
+    const text = $("text").value;
     const mode = detect(text);
     if (!isComplete(text, mode)) {
       return;
     }
 
     if (mode === "signed") {
-      await run(async () => showResult(await window.inro_verify(text)));
+      await run(verifyFlow);
       return;
     }
 
-    // Encrypted: find out who can open it, then open it or ask.
     lastInfo = await window.inro_who_can_open(text).catch(() => null);
     if (!lastInfo) {
       render();
@@ -296,190 +521,36 @@ async function autoRun() {
     fillSelect($("open-key"), candidates);
     render();
 
-    if (lastInfo.symmetric && lastInfo.keys.length === 0) {
-      askPassphrase("This message is protected by a passphrase.");
-      return;
+    if (!lastInfo.symmetric && lastInfo.keys.length === 0) {
+      return; // plan() already tells the user this is not their message
     }
 
-    const candidate = openCandidate();
-    if (!candidate) {
-      return; // not our message; plan() already says so
-    }
-
-    if (!candidate.locked) {
-      await run(async () => showResult(await doDecrypt("")));
-      return;
-    }
-
-    askPassphrase(`Passphrase for ${labelFor(candidate.fingerprint)} — Enter decrypts.`);
+    await run(decryptFlow);
   } finally {
     autoBusy = false;
   }
 }
 
-async function doDecrypt(passphrase) {
-  return window.inro_decrypt({
-    message: $("in-text").value,
-    key: $("open-key").value,
-    passphrase: passphrase,
-  });
-}
+// --- Message page wiring ------------------------------------------------------------
 
-// --- The manual path ---------------------------------------------------------
-
-// execute runs the one action the plan settled on.
-async function execute() {
-  const p = plan();
-  const text = $("in-text").value;
-
-  if (p.mode === "encrypted") {
-    showResult(await doDecrypt($("passphrase").value));
-    $("passphrase").value = "";
-    return;
-  }
-
-  if (p.mode === "signed") {
-    showResult(await window.inro_verify(text));
-    return;
-  }
-
-  const recipients = selectedValues($("recipients"));
-  const signing = $("sign-toggle").checked;
-
-  hideSignature();
-
-  let out;
-  if (recipients.length === 0) {
-    out = await window.inro_sign({
-      text: text,
-      key: $("sign-key").value,
-      passphrase: $("passphrase").value,
-    });
-  } else {
-    out = await window.inro_encrypt({
-      text: text,
-      recipients: recipients,
-      signWith: signing ? $("sign-key").value : "",
-      passphrase: $("passphrase").value,
-    });
-  }
-  $("passphrase").value = "";
-
-  // Outgoing message: the next step is almost always pasting it somewhere,
-  // so leave it selected — Cmd/Ctrl+C is enough.
-  $("out-text").value = out;
-  $("out-text").select();
-}
-
-// --- Keys tab ----------------------------------------------------------------
-
-function renderKeyList() {
-  const list = $("key-list");
-  list.replaceChildren();
-
-  if (keys.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "text-muted py-5 text-center";
-    empty.textContent = "No keys yet. Generate one below, or import one.";
-    list.append(empty);
-    return;
-  }
-
-  for (const k of keys) {
-    const item = document.createElement("button");
-    item.className = "list-group-item list-group-item-action";
-    item.addEventListener("click", () => openKey(k));
-
-    const row = document.createElement("div");
-    row.className = "d-flex align-items-center gap-2";
-
-    const title = document.createElement("span");
-    title.className = "flex-grow-1 text-truncate";
-    title.textContent = k.nickname ? `${k.nickname} — ${k.identity}` : k.identity;
-    row.append(title);
-
-    if (k.private) {
-      const badge = document.createElement("span");
-      badge.className = "badge text-bg-primary";
-      badge.textContent = "private";
-      row.append(badge);
-    }
-
-    const id = document.createElement("small");
-    id.className = "text-muted font-monospace d-block mt-1";
-    id.textContent = `${k.keyId} · created ${k.created}`;
-
-    item.append(row, id);
-    list.append(item);
-  }
-}
-
-async function refreshKeys() {
-  keys = (await window.inro_list_keys()) || [];
-
-  const privateKeys = keys.filter((k) => k.private);
-
-  fillSelect($("recipients"), keys);
-  fillSelect($("sign-key"), privateKeys);
-
-  renderKeyList();
-  render();
-}
-
-function openKey(k) {
-  selected = k;
-
-  $("key-modal-title").textContent = k.identity;
-  $("key-modal-fingerprint").textContent = k.fingerprint;
-  $("key-modal-nickname").value = k.nickname;
-  $("key-modal-note").value = k.note;
-  $("key-modal-export").value = "";
-
-  run(async () => {
-    $("key-modal-export").value = await window.inro_export_key(k.fingerprint);
-  });
-
-  bootstrap.Modal.getOrCreateInstance($("key-modal")).show();
-}
-
-function showKeysTab() {
-  bootstrap.Tab.getOrCreateInstance(
-    document.querySelector('[data-bs-target="#pane-keys"]'),
-  ).show();
-}
-
-// --- Wiring -------------------------------------------------------------------
-
-$("in-text").addEventListener("input", () => {
+$("text").addEventListener("input", () => {
   lastInfo = null;
-  if (detect($("in-text").value) === "empty") {
-    $("out-text").value = "";
-    hideSignature();
+  restoreText = null;
+  hideBanner();
+  if (detect($("text").value) === "empty") {
+    clearAlert();
   }
   render();
   scheduleAuto();
 });
 
 $("recipients").addEventListener("change", render);
-$("sign-toggle").addEventListener("change", () => {
-  render();
-  if ($("sign-toggle").checked) {
-    $("passphrase").focus();
-  }
-});
+$("sign-toggle").addEventListener("change", render);
 $("open-key").addEventListener("change", render);
 
 $("run").addEventListener("click", () => run(execute));
 
-// Enter in the passphrase field answers the question it asks; Cmd/Ctrl+Enter
-// in the input runs the action from anywhere.
-$("passphrase").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !$("run").disabled) {
-    e.preventDefault();
-    run(execute);
-  }
-});
-$("in-text").addEventListener("keydown", (e) => {
+$("text").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !$("run").disabled) {
     e.preventDefault();
     run(execute);
@@ -492,17 +563,17 @@ $("open-file").addEventListener("click", () =>
     if (!text) {
       return;
     }
-    $("in-text").value = text;
-    $("in-text").dispatchEvent(new Event("input"));
+    $("text").value = text;
+    $("text").dispatchEvent(new Event("input"));
   }),
 );
 
 $("save-file").addEventListener("click", () =>
   run(async () => {
-    if (!$("out-text").value) {
+    if (!$("text").value) {
       return;
     }
-    const path = await window.inro_save_text_file($("out-text").value);
+    const path = await window.inro_save_text_file($("text").value);
     if (path) {
       showInfo(`Saved to ${path}.`);
     }
@@ -511,7 +582,7 @@ $("save-file").addEventListener("click", () =>
 
 $("copy").addEventListener("click", () =>
   run(async () => {
-    const text = $("out-text").value;
+    const text = $("text").value;
     if (!text) {
       return;
     }
@@ -521,21 +592,164 @@ $("copy").addEventListener("click", () =>
 );
 
 $("clear").addEventListener("click", () => {
-  $("in-text").value = "";
-  $("out-text").value = "";
-  $("passphrase").value = "";
+  restoreText = null;
   lastInfo = null;
-  hideSignature();
+  hideBanner();
   clearAlert();
-  render();
-  $("in-text").focus();
+  setText("");
+  $("text").focus();
 });
+
+// --- Keys pages -----------------------------------------------------------------------
+
+function renderKeyList() {
+  const list = $("key-list");
+  list.replaceChildren();
+
+  if (keys.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "text-muted py-5 text-center";
+    empty.textContent = "No keys yet. Generate your key pair, or import one.";
+    list.append(empty);
+    return;
+  }
+
+  for (const k of keys) {
+    const item = document.createElement("button");
+    item.className = "list-group-item list-group-item-action";
+    item.addEventListener("click", () => openKeyPage(k));
+
+    const row = document.createElement("div");
+    row.className = "d-flex align-items-center gap-2";
+
+    const title = document.createElement("span");
+    title.className = "flex-grow-1 text-truncate";
+    title.textContent = k.nickname ? `${k.nickname} — ${k.identity}` : k.identity;
+    row.append(title);
+
+    if (k.certifiedBy && k.certifiedBy.length > 0) {
+      const badge = document.createElement("span");
+      badge.className = "badge text-bg-success";
+      badge.textContent = "certified";
+      badge.title = `Certified by ${k.certifiedBy.join(", ")}`;
+      row.append(badge);
+    }
+    if (k.private) {
+      const badge = document.createElement("span");
+      badge.className = "badge text-bg-primary";
+      badge.textContent = "private";
+      row.append(badge);
+    }
+
+    const id = document.createElement("small");
+    id.className = "text-muted font-monospace d-block mt-1";
+    const expiry = k.expires ? ` · expires ${k.expires}` : "";
+    id.textContent = `${k.keyId} · created ${k.created}${expiry}`;
+
+    item.append(row, id);
+    list.append(item);
+  }
+}
+
+async function refreshKeys() {
+  keys = (await window.inro_list_keys()) || [];
+
+  const privateKeys = keys.filter((k) => k.private);
+  fillSelect($("recipients"), keys);
+  fillSelect($("sign-key"), privateKeys);
+
+  renderKeyList();
+  render();
+}
+
+function openKeyPage(k) {
+  selectedKey = k;
+
+  $("key-title").textContent = k.nickname ? `${k.nickname} — ${k.identity}` : k.identity;
+  $("key-private-badge").classList.toggle("d-none", !k.private);
+  $("key-fingerprint").textContent = k.fingerprint;
+
+  const expiry = k.expires ? ` · expires ${k.expires}` : " · never expires";
+  $("key-dates").textContent = `${k.keyId} · created ${k.created}${expiry}`;
+
+  const cert = $("key-certified");
+  if (k.certifiedBy && k.certifiedBy.length > 0) {
+    cert.className = "small mb-3 text-success";
+    cert.textContent = `Certified by ${k.certifiedBy.join(", ")}.`;
+  } else {
+    cert.className = "small mb-3 text-muted";
+    cert.textContent = "No certifications from keys in your keyring.";
+  }
+
+  $("key-nickname").value = k.nickname;
+  $("key-note").value = k.note;
+  $("key-export").value = "";
+
+  // Certifying needs one of MY private keys that is not this key.
+  const signers = keys.filter((s) => s.private && s.fingerprint !== k.fingerprint);
+  $("key-certify-block").classList.toggle("d-none", signers.length === 0);
+  fillSelect($("certify-with"), signers);
+
+  run(async () => {
+    $("key-export").value = await window.inro_export_key(k.fingerprint);
+  });
+
+  showPage("key");
+}
+
+$("key-save").addEventListener("click", () =>
+  run(async () => {
+    await window.inro_set_key_meta(
+      selectedKey.fingerprint,
+      $("key-nickname").value,
+      $("key-note").value,
+    );
+    await refreshKeys();
+    showInfo("Saved.");
+  }),
+);
+
+$("certify-run").addEventListener("click", () =>
+  run(async () => {
+    const target = selectedKey.fingerprint;
+    const signer = $("certify-with").value;
+    const done = await withPassphrase(
+      (pass) => window.inro_certify_key(target, signer, pass).then(() => true),
+      "Unlock certifying key",
+    );
+    if (done === null) {
+      return;
+    }
+    await refreshKeys();
+    openKeyPage(keys.find((k) => k.fingerprint === target));
+    showInfo(`Certified with ${labelFor(signer)}.`);
+  }),
+);
+
+$("key-export-copy").addEventListener("click", () =>
+  run(async () => {
+    await navigator.clipboard.writeText($("key-export").value);
+    showInfo("Public key copied to the clipboard.");
+  }),
+);
+
+$("key-delete").addEventListener("click", () =>
+  run(async () => {
+    if (!confirm(`Delete the key of ${selectedKey.identity}?`)) {
+      return;
+    }
+    await window.inro_delete_key(selectedKey.fingerprint);
+    await refreshKeys();
+    showPage("keys");
+  }),
+);
 
 $("key-import-run").addEventListener("click", () =>
   run(async () => {
     const imported = await window.inro_import_key($("key-import").value);
     $("key-import").value = "";
     await refreshKeys();
+    showPage("keys");
     showInfo(`Imported ${imported.map((k) => k.identity).join(", ")}.`);
   }),
 );
@@ -551,50 +765,46 @@ $("key-import-file").addEventListener("click", () =>
 
 $("gen-run").addEventListener("click", () =>
   run(async () => {
+    const name = $("gen-name").value.trim();
+    const email = $("gen-email").value.trim();
+    if (!name || !email) {
+      showError(new Error("Name and email are required."));
+      return;
+    }
+
+    const pass = await askPass({
+      title: "Set a passphrase",
+      hint: "This passphrase protects the new private key on disk.",
+      create: true,
+    });
+    if (pass === null) {
+      return;
+    }
+
     const info = await window.inro_generate_key(
-      $("gen-name").value,
-      $("gen-email").value,
-      $("gen-passphrase").value,
+      name,
+      email,
+      pass,
+      Number($("gen-expiry").value),
     );
     $("gen-name").value = "";
     $("gen-email").value = "";
-    $("gen-passphrase").value = "";
     await refreshKeys();
+    showPage("keys");
     showInfo(`Generated ${info.identity} (${info.keyId}).`);
   }),
 );
 
-$("key-modal-save").addEventListener("click", () =>
-  run(async () => {
-    await window.inro_set_key_meta(
-      selected.fingerprint,
-      $("key-modal-nickname").value,
-      $("key-modal-note").value,
-    );
-    bootstrap.Modal.getOrCreateInstance($("key-modal")).hide();
-    await refreshKeys();
-  }),
-);
-
-$("key-modal-delete").addEventListener("click", () =>
-  run(async () => {
-    if (!confirm(`Delete the key of ${selected.identity}?`)) {
-      return;
-    }
-    await window.inro_delete_key(selected.fingerprint);
-    bootstrap.Modal.getOrCreateInstance($("key-modal")).hide();
-    await refreshKeys();
-  }),
-);
+// --- Startup ---------------------------------------------------------------------------
 
 run(async () => {
   settings = await window.inro_settings();
   await refreshKeys();
 
-  // First run: there is nothing to do on the message screen without keys,
-  // so start where the work is.
+  // First run: there is nothing to do on the message page without keys, so
+  // start where the work is.
   if (keys.length === 0) {
-    showKeysTab();
-    showInfo("Welcome. Generate your key pair below, or import one you already have.");
+    showPage("keys");
+    showInfo("Welcome. Generate your key pair, or import one you already have.");
   }
 });

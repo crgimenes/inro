@@ -1,0 +1,34 @@
+/* inro layout: one narrow column, one text field, quiet chrome. */
+
+.inro-narrow {
+  max-width: 860px;
+}
+
+/* textarea.form-control in Bootstrap sets min-height with higher specificity,
+   so the element selector here is load-bearing. */
+textarea.inro-text {
+  min-height: 46vh;
+  resize: vertical;
+}
+
+.inro-page-title {
+  letter-spacing: .02em;
+}
+
+#key-list .list-group-item {
+  padding-top: .7rem;
+  padding-bottom: .7rem;
+}
+
+.inro-meter {
+  height: 6px;
+}
+
+.inro-fingerprint {
+  word-break: break-all;
+}
+
+textarea.form-control.font-monospace {
+  font-size: .9rem;
+  line-height: 1.5;
+}

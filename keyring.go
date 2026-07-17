@@ -28,13 +28,15 @@ type KeyMeta struct {
 // KeyInfo is how a key is presented to the UI. Everything but Nickname and
 // Note is derived from the key itself, so the two stores cannot drift.
 type KeyInfo struct {
-	Fingerprint string `json:"fingerprint"`
-	KeyID       string `json:"keyId"`
-	Identity    string `json:"identity"`
-	Nickname    string `json:"nickname"`
-	Note        string `json:"note"`
-	Private     bool   `json:"private"`
-	Created     string `json:"created"`
+	Fingerprint string   `json:"fingerprint"`
+	KeyID       string   `json:"keyId"`
+	Identity    string   `json:"identity"`
+	Nickname    string   `json:"nickname"`
+	Note        string   `json:"note"`
+	Private     bool     `json:"private"`
+	Created     string   `json:"created"`
+	Expires     string   `json:"expires"`
+	CertifiedBy []string `json:"certifiedBy"`
 }
 
 // Keyring is the on-disk key collection: one armored file per key under
@@ -277,6 +279,8 @@ func (k *Keyring) List() []KeyInfo {
 			Note:        k.meta[fp].Note,
 			Private:     e.PrivateKey != nil,
 			Created:     e.PrimaryKey.CreationTime.Format("2006-01-02"),
+			Expires:     expiryOf(e),
+			CertifiedBy: k.certifiedByLocked(e),
 		})
 	}
 
@@ -305,26 +309,15 @@ func (k *Keyring) Import(armored string) ([]KeyInfo, error) {
 		return nil, fmt.Errorf("no keys found in that text")
 	}
 
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
 	imported := make([]KeyInfo, 0, len(el))
 	for _, e := range el {
-		fp := fingerprintOf(e)
-
-		text, err := serializeEntity(e)
+		err = k.store(e)
 		if err != nil {
-			return nil, fmt.Errorf("serialize key %s: %w", fp, err)
+			return nil, err
 		}
 
-		err = os.WriteFile(k.keyPath(fp), []byte(text), 0o600)
-		if err != nil {
-			return nil, fmt.Errorf("write key %s: %w", fp, err)
-		}
-
-		k.entities[fp] = e
 		imported = append(imported, KeyInfo{
-			Fingerprint: fp,
+			Fingerprint: fingerprintOf(e),
 			KeyID:       e.PrimaryKey.KeyIdString(),
 			Identity:    primaryIdentity(e),
 			Private:     e.PrivateKey != nil,
@@ -453,20 +446,11 @@ func (k *Keyring) unlocked(fingerprint, passphrase string) (*openpgp.Entity, err
 		return e, nil
 	}
 
-	b, err := os.ReadFile(filepath.Clean(k.keyPath(fingerprint)))
+	e, err := k.loadEntityFile(fingerprint)
 	if err != nil {
-		return nil, fmt.Errorf("key %s is not in the keyring", fingerprint)
+		return nil, err
 	}
 
-	el, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(b))
-	if err != nil {
-		return nil, fmt.Errorf("parse key %s: %w", fingerprint, err)
-	}
-	if len(el) == 0 {
-		return nil, fmt.Errorf("key %s is empty", fingerprint)
-	}
-
-	e = el[0]
 	if e.PrivateKey == nil {
 		return nil, fmt.Errorf("key %s has no private part", fingerprint)
 	}
@@ -542,6 +526,89 @@ func (k *Keyring) canOpen(ids []uint64) []*openpgp.Entity {
 	})
 
 	return out
+}
+
+// expiryOf returns the primary key's expiry date, or "" for a key that never
+// expires.
+func expiryOf(e *openpgp.Entity) string {
+	selfSig, _ := e.PrimarySelfSignature()
+	if selfSig == nil || selfSig.KeyLifetimeSecs == nil || *selfSig.KeyLifetimeSecs == 0 {
+		return ""
+	}
+	t := e.PrimaryKey.CreationTime.Add(time.Duration(*selfSig.KeyLifetimeSecs) * time.Second)
+	return t.Format("2006-01-02")
+}
+
+// certifiedByLocked lists who vouches for this key: the identities of keyring
+// keys whose certification signature on e's primary identity actually
+// verifies. Signatures from unknown keys are not shown — an unverifiable
+// claim is noise, not assurance. Callers must hold at least a read lock.
+func (k *Keyring) certifiedByLocked(e *openpgp.Entity) []string {
+	_, ident := e.PrimarySelfSignature()
+	if ident == nil {
+		return nil
+	}
+
+	var out []string
+	for _, sig := range ident.Signatures {
+		if sig.IssuerKeyId == nil || *sig.IssuerKeyId == e.PrimaryKey.KeyId {
+			continue
+		}
+
+		for _, issuer := range k.entities {
+			if issuer.PrimaryKey.KeyId != *sig.IssuerKeyId {
+				continue
+			}
+			err := issuer.PrimaryKey.VerifyUserIdSignature(ident.Name, e.PrimaryKey, sig)
+			if err == nil {
+				out = append(out, primaryIdentity(issuer))
+			}
+			break
+		}
+	}
+
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// loadEntityFile reads one key's fresh copy from disk, so callers can unlock
+// or extend it without touching the shared cached entity.
+func (k *Keyring) loadEntityFile(fingerprint string) (*openpgp.Entity, error) {
+	b, err := os.ReadFile(filepath.Clean(k.keyPath(fingerprint)))
+	if err != nil {
+		return nil, fmt.Errorf("key %s is not in the keyring", fingerprint)
+	}
+
+	el, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(b))
+	if err != nil {
+		return nil, fmt.Errorf("parse key %s: %w", fingerprint, err)
+	}
+	if len(el) == 0 {
+		return nil, fmt.Errorf("key %s is empty", fingerprint)
+	}
+	return el[0], nil
+}
+
+// store persists an entity to its .asc file and makes it the current
+// in-memory copy.
+func (k *Keyring) store(e *openpgp.Entity) error {
+	fp := fingerprintOf(e)
+
+	text, err := serializeEntity(e)
+	if err != nil {
+		return fmt.Errorf("serialize key %s: %w", fp, err)
+	}
+
+	err = os.WriteFile(k.keyPath(fp), []byte(text), 0o600)
+	if err != nil {
+		return fmt.Errorf("write key %s: %w", fp, err)
+	}
+
+	k.mu.Lock()
+	k.entities[fp] = e
+	k.mu.Unlock()
+
+	return nil
 }
 
 func matchesAnyKeyID(e *openpgp.Entity, ids []uint64) bool {
