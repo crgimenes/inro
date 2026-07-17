@@ -154,12 +154,28 @@ function passError(text) {
   $("pass-error").classList.remove("d-none");
 }
 
+// hidePassModal survives Bootstrap's transition race: hide() during the
+// fade-in is silently ignored, which left a zombie window when OK was hit
+// fast enough. If the hide is swallowed, the pending shown handler retries.
+function hidePassModal() {
+  const el = $("pass-modal");
+  const modal = bootstrap.Modal.getOrCreateInstance(el);
+  const retry = () => modal.hide();
+  el.addEventListener("shown.bs.modal", retry, { once: true });
+  el.addEventListener(
+    "hidden.bs.modal",
+    () => el.removeEventListener("shown.bs.modal", retry),
+    { once: true },
+  );
+  modal.hide();
+}
+
 function finishPass(value) {
   const resolve = passResolve;
   passResolve = null;
   passReject = null;
   passOp = null;
-  bootstrap.Modal.getOrCreateInstance($("pass-modal")).hide();
+  hidePassModal();
   if (resolve) {
     resolve(value);
   }
@@ -199,7 +215,7 @@ $("pass-ok").addEventListener("click", async () => {
     passResolve = null;
     passReject = null;
     passOp = null;
-    bootstrap.Modal.getOrCreateInstance($("pass-modal")).hide();
+    hidePassModal();
     if (reject) {
       reject(err);
     }
@@ -561,6 +577,7 @@ async function autoRun() {
       render();
       return;
     }
+    lastInfo.keys = lastInfo.keys || [];
 
     const candidates = lastInfo.keys.map((c) => ({
       fingerprint: c.fingerprint,
@@ -621,7 +638,7 @@ $("save-file").addEventListener("click", () =>
     if (!$("text").value) {
       return;
     }
-    const path = await window.inro_save_text_file($("text").value);
+    const path = await window.inro_save_text_file($("text").value, "message.asc");
     if (path) {
       showInfo(`Saved to ${path}.`);
     }
@@ -740,6 +757,9 @@ function openKeyPage(k) {
   $("key-nickname").value = k.nickname;
   $("key-note").value = k.note;
   $("key-export").value = "";
+  $("key-private-block").classList.toggle("d-none", !k.private);
+  $("key-private-export").value = "";
+  $("key-private-export").classList.add("d-none");
 
   // Certifying needs one of MY private keys that is not this key.
   const signers = keys.filter((s) => s.private && s.fingerprint !== k.fingerprint);
@@ -779,6 +799,41 @@ $("certify-run").addEventListener("click", () =>
     await refreshKeys();
     openKeyPage(keys.find((k) => k.fingerprint === target));
     showInfo(`Certified with ${labelFor(signer)}.`);
+  }),
+);
+
+async function privateKeyBlock() {
+  return window.inro_export_private_key(selectedKey.fingerprint);
+}
+
+$("key-private-show").addEventListener("click", () =>
+  run(async () => {
+    const box = $("key-private-export");
+    if (!box.classList.contains("d-none")) {
+      box.classList.add("d-none");
+      return;
+    }
+    box.value = await privateKeyBlock();
+    box.classList.remove("d-none");
+  }),
+);
+
+$("key-private-copy").addEventListener("click", () =>
+  run(async () => {
+    await navigator.clipboard.writeText(await privateKeyBlock());
+    showInfo("Private key copied to the clipboard.");
+  }),
+);
+
+$("key-private-save").addEventListener("click", () =>
+  run(async () => {
+    const path = await window.inro_save_text_file(
+      await privateKeyBlock(),
+      `${selectedKey.keyId}-private.asc`,
+    );
+    if (path) {
+      showInfo(`Saved to ${path}.`);
+    }
   }),
 );
 
@@ -873,9 +928,13 @@ $("gen-run").addEventListener("click", () =>
 // The page is an app, not a document: no browser context menu (with its
 // Reload) outside the text fields. Inside them the native editing menu stays.
 document.addEventListener("contextmenu", (e) => {
-  if (!e.target.closest("textarea, input")) {
-    e.preventDefault();
+  if (e.target.closest("textarea, input")) {
+    return;
   }
+  if (String(document.getSelection())) {
+    return;
+  }
+  e.preventDefault();
 });
 
 // WKWebView without a native Edit menu drops the standard editing shortcuts
@@ -900,13 +959,22 @@ if (needsEditShim) {
     if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) {
       return;
     }
-    const el = document.activeElement;
-    const editable = el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT");
-    if (!editable) {
-      return;
-    }
 
     const key = e.key.toLowerCase();
+    const el = document.activeElement;
+    const editable = el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT");
+
+    if (!editable) {
+      // Selected page text (an error message, a fingerprint) must still copy.
+      if (key === "c") {
+        const selection = String(document.getSelection());
+        if (selection) {
+          e.preventDefault();
+          await navigator.clipboard.writeText(selection);
+        }
+      }
+      return;
+    }
 
     if (key === "a") {
       e.preventDefault();

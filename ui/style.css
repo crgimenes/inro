@@ -54,6 +54,25 @@ textarea.inro-text {
   --bs-btn-border-color: #6f777e;
 }
 
+/* Grow-to-fit blocks outside the message page: key material and the import
+   box absorb spare window height the same way the message field does. */
+textarea.inro-grow {
+  flex: 1 1 auto;
+  min-height: 9rem;
+  resize: none;
+}
+
+.inro-fill {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.inro-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .inro-page-title {
   letter-spacing: .02em;
 }

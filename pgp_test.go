@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
@@ -672,5 +673,130 @@ func TestExpiredKeyIsFlagged(t *testing.T) {
 	}
 	if fresh.Expired {
 		t.Errorf("key without expiry is flagged as expired: %+v", fresh)
+	}
+}
+
+// TestImportDoesNotDowngradePrivate reproduces the gpg migration sequence
+// that bit in practice: import your own private key, then a contacts file
+// that also carries your public key. The private part must survive, and a
+// certification arriving on the public copy must still land.
+func TestImportDoesNotDowngradePrivate(t *testing.T) {
+	svc, alice, bob := newTestService(t)
+
+	err := svc.CertifyKey(bob.Fingerprint, alice.Fingerprint, testPassphrase)
+	if err != nil {
+		t.Fatalf("CertifyKey: %v", err)
+	}
+
+	// The public export carries the certification; importing it back over the
+	// private copy is the contacts.asc scenario.
+	pub, err := svc.ExportKey(bob.Fingerprint)
+	if err != nil {
+		t.Fatalf("ExportKey: %v", err)
+	}
+	_, err = svc.ImportKey(pub)
+	if err != nil {
+		t.Fatalf("re-import public copy: %v", err)
+	}
+
+	var got KeyInfo
+	for _, k := range svc.kr.List() {
+		if k.Fingerprint == bob.Fingerprint {
+			got = k
+		}
+	}
+	if !got.Private {
+		t.Fatal("importing the public copy downgraded the stored private key")
+	}
+	if len(got.CertifiedBy) == 0 {
+		t.Error("certification lost after re-importing the public copy")
+	}
+
+	// The key must still decrypt, proving the private material on disk.
+	armored, err := svc.Encrypt(EncryptRequest{Text: "still private", Recipients: []string{bob.Fingerprint}})
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	dec, err := svc.Decrypt(DecryptRequest{Message: armored, Passphrase: testPassphrase})
+	if err != nil {
+		t.Fatalf("Decrypt after re-import: %v", err)
+	}
+	if dec.Text != "still private" {
+		t.Errorf("text = %q", dec.Text)
+	}
+}
+
+// TestExportPrivateKey covers the private-key export and its refusal for
+// keys that have no private part.
+func TestExportPrivateKey(t *testing.T) {
+	svc, alice, _ := newTestService(t)
+
+	armored, err := svc.ExportPrivateKey(alice.Fingerprint)
+	if err != nil {
+		t.Fatalf("ExportPrivateKey: %v", err)
+	}
+	if !strings.Contains(armored, "BEGIN PGP PRIVATE KEY BLOCK") {
+		t.Errorf("export is not a private key block:\n%.80s", armored)
+	}
+
+	// A public-only key must refuse: generate, export public, delete, re-import.
+	carol, err := svc.GenerateKey("Carol", "carol@example.com", "", 0)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	pub, err := svc.ExportKey(carol.Fingerprint)
+	if err != nil {
+		t.Fatalf("ExportKey: %v", err)
+	}
+	err = svc.DeleteKey(carol.Fingerprint)
+	if err != nil {
+		t.Fatalf("DeleteKey: %v", err)
+	}
+	_, err = svc.ImportKey(pub)
+	if err != nil {
+		t.Fatalf("ImportKey: %v", err)
+	}
+	_, err = svc.ExportPrivateKey(carol.Fingerprint)
+	if err == nil {
+		t.Fatal("exported a private block for a public-only key")
+	}
+}
+
+// TestWhoCanOpenEmitsEmptyKeysArray pins the JSON contract with the UI: a
+// message no key of ours can open must serialize keys as [], never null,
+// which crashed the front end in the field.
+func TestWhoCanOpenEmitsEmptyKeysArray(t *testing.T) {
+	svc, _, _ := newTestService(t)
+
+	stranger, err := openpgp.NewEntity("Stranger", "", "s@example.com",
+		&packet.Config{Algorithm: packet.PubKeyAlgoEdDSA})
+	if err != nil {
+		t.Fatalf("NewEntity: %v", err)
+	}
+
+	var buf bytes.Buffer
+	aw, err := armor.Encode(&buf, "PGP MESSAGE", nil)
+	if err != nil {
+		t.Fatalf("armor: %v", err)
+	}
+	w, err := openpgp.Encrypt(aw, []*openpgp.Entity{stranger}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	_, _ = io.WriteString(w, "not for us")
+	_ = w.Close()
+	_ = aw.Close()
+
+	info, err := svc.WhoCanOpen(buf.String())
+	if err != nil {
+		t.Fatalf("WhoCanOpen: %v", err)
+	}
+
+	b, err := json.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(b), `"keys":[]`) {
+		t.Errorf("json = %s, want keys serialized as an empty array", b)
 	}
 }

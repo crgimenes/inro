@@ -16,6 +16,7 @@ import (
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/crgimenes/filo"
 )
 
@@ -315,6 +316,7 @@ func (k *Keyring) Import(armored string) ([]KeyInfo, error) {
 
 	imported := make([]KeyInfo, 0, len(el))
 	for _, e := range el {
+		e = k.mergePreservingPrivate(e)
 		err = k.store(e)
 		if err != nil {
 			return nil, err
@@ -329,6 +331,68 @@ func (k *Keyring) Import(armored string) ([]KeyInfo, error) {
 	}
 
 	return imported, nil
+}
+
+// mergePreservingPrivate decides what to store when an incoming key is
+// already in the ring. A public-only copy must never downgrade a stored
+// private key (gpg's --export emits your own public key too, so importing a
+// contacts file after your own key is a normal sequence); instead the private
+// copy is kept and any new third-party signatures are grafted onto it, so a
+// certified public copy of your key coming back from a friend still lands.
+func (k *Keyring) mergePreservingPrivate(incoming *openpgp.Entity) *openpgp.Entity {
+	k.mu.RLock()
+	existing := k.entities[fingerprintOf(incoming)]
+	k.mu.RUnlock()
+
+	if existing == nil || existing.PrivateKey == nil || incoming.PrivateKey != nil {
+		return incoming
+	}
+
+	for name, inID := range incoming.Identities {
+		exID, ok := existing.Identities[name]
+		if !ok {
+			continue
+		}
+		for _, sig := range inID.Signatures {
+			if !hasSignature(exID.Signatures, sig) {
+				exID.Signatures = append(exID.Signatures, sig)
+			}
+		}
+	}
+
+	return existing
+}
+
+// hasSignature reports whether an equivalent signature (same issuer, same
+// creation time) is already present.
+func hasSignature(list []*packet.Signature, sig *packet.Signature) bool {
+	for _, s := range list {
+		if s.IssuerKeyId != nil && sig.IssuerKeyId != nil &&
+			*s.IssuerKeyId == *sig.IssuerKeyId && s.CreationTime.Equal(sig.CreationTime) {
+			return true
+		}
+	}
+	return false
+}
+
+// ExportPrivate returns the stored armored block of a key that has a private
+// part: the exact bytes on disk, still protected by the key's own passphrase.
+func (k *Keyring) ExportPrivate(fingerprint string) (string, error) {
+	fingerprint = strings.ToUpper(strings.TrimSpace(fingerprint))
+
+	e, err := k.entity(fingerprint)
+	if err != nil {
+		return "", err
+	}
+	if e.PrivateKey == nil {
+		return "", fmt.Errorf("key %s has no private part", fingerprint)
+	}
+
+	b, err := os.ReadFile(filepath.Clean(k.keyPath(fingerprint)))
+	if err != nil {
+		return "", fmt.Errorf("read key %s: %w", fingerprint, err)
+	}
+	return string(b), nil
 }
 
 // Delete removes a key and its metadata from the keyring.

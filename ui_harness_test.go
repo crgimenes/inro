@@ -88,7 +88,7 @@ const bridgeJS = `<script>
     return j.result;
   };
   for (const n of ["settings", "about", "list_keys", "import_key", "export_key", "delete_key",
-                   "set_key_meta", "who_can_open", "encrypt", "decrypt", "sign",
+                   "set_key_meta", "export_private_key", "who_can_open", "encrypt", "decrypt", "sign",
                    "verify", "generate_key", "certify_key", "open_text_file", "save_text_file"]) {
     window["inro_" + n] = inroCall(n);
   }
@@ -126,6 +126,8 @@ func callHandler(svc *Service) http.HandlerFunc {
 				return svc.ImportKey(str(0))
 			case "export_key":
 				return svc.ExportKey(str(0))
+			case "export_private_key":
+				return svc.ExportPrivateKey(str(0))
 			case "delete_key":
 				return nil, svc.DeleteKey(str(0))
 			case "set_key_meta":
@@ -157,7 +159,7 @@ func callHandler(svc *Service) http.HandlerFunc {
 			case "open_text_file":
 				return svc.OpenTextFile()
 			case "save_text_file":
-				return svc.SaveTextFile(str(0))
+				return svc.SaveTextFile(str(0), str(1))
 			default:
 				return nil, fmt.Errorf("unknown method %q", name)
 			}

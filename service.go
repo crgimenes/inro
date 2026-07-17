@@ -216,6 +216,13 @@ func (s *Service) ExportKey(fingerprint string) (string, error) {
 	return s.kr.Export(fingerprint)
 }
 
+// ExportPrivateKey returns the armored private key block as stored on disk,
+// still locked by the key's own passphrase. Sensitive either way: the UI only
+// offers it behind an explicit action on the key's page.
+func (s *Service) ExportPrivateKey(fingerprint string) (string, error) {
+	return s.kr.ExportPrivate(fingerprint)
+}
+
 // DeleteKey removes a key from the keyring.
 func (s *Service) DeleteKey(fingerprint string) error {
 	return s.kr.Delete(fingerprint)
@@ -235,7 +242,8 @@ func (s *Service) WhoCanOpen(message string) (MessageInfo, error) {
 		return MessageInfo{}, err
 	}
 
-	info := MessageInfo{Symmetric: symmetric}
+	// Keys starts non-nil so the UI always receives a JSON array, never null.
+	info := MessageInfo{Symmetric: symmetric, Keys: []OpenCandidate{}}
 	for _, e := range s.kr.canOpen(ids) {
 		fp := fingerprintOf(e)
 		info.Keys = append(info.Keys, OpenCandidate{
@@ -380,15 +388,18 @@ func (s *Service) OpenTextFile() (string, error) {
 }
 
 // SaveTextFile shows the native save dialog and writes content to the chosen
-// path. Returns the path, or "" when the user cancels.
-func (s *Service) SaveTextFile(content string) (string, error) {
+// path, suggesting filename. Returns the path, or "" when the user cancels.
+func (s *Service) SaveTextFile(content, filename string) (string, error) {
 	if s.w == nil {
 		return "", errors.New("no window")
 	}
+	if filename == "" {
+		filename = "message.asc"
+	}
 
 	path, err := s.w.SaveFile(glaze.FileDialogOptions{
-		Title:    "Save message",
-		Filename: "message.asc",
+		Title:    "Save",
+		Filename: filename,
 	})
 	if err != nil || path == "" {
 		return "", err
