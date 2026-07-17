@@ -87,7 +87,7 @@ const bridgeJS = `<script>
     if (!j.ok) throw new Error(j.error);
     return j.result;
   };
-  for (const n of ["settings", "list_keys", "import_key", "export_key", "delete_key",
+  for (const n of ["settings", "about", "list_keys", "import_key", "export_key", "delete_key",
                    "set_key_meta", "who_can_open", "encrypt", "decrypt", "sign",
                    "verify", "generate_key", "certify_key", "open_text_file", "save_text_file"]) {
     window["inro_" + n] = inroCall(n);
@@ -118,6 +118,8 @@ func callHandler(svc *Service) http.HandlerFunc {
 			switch name {
 			case "settings":
 				return svc.Settings()
+			case "about":
+				return svc.About()
 			case "list_keys":
 				return svc.ListKeys()
 			case "import_key":

@@ -90,7 +90,14 @@ Every setting is optional; the defaults are shown.
 (set DataDir "~/.config/inro")       ; where keys and metadata live
 (set DefaultKey "")                  ; fingerprint pre-selected in the UI
 (set KeyCacheSeconds 300)            ; how long a typed passphrase keeps the key unlocked
+(set ScreenCaptureProtection #t)     ; black out the window in captures (Windows only; see below)
 ```
+
+Screen-capture protection blacks the window out in screenshots, recordings
+and screen sharing, like a DRM video player. It only works on Windows
+(`SetWindowDisplayAffinity`): Apple removed the macOS capability in 15.4 with
+no public replacement, and Linux compositors never had one — on both, inro
+logs that the protection is unavailable and runs normally.
 
 ## Status
 

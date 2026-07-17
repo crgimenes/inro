@@ -250,15 +250,25 @@ async function withPassphrase(fn, title) {
 
 // --- Pages ---------------------------------------------------------------------
 
-const PAGES = ["message", "keys", "generate", "import", "key"];
+const PAGES = ["message", "keys", "generate", "import", "key", "about"];
 
 function showPage(name) {
   for (const p of PAGES) {
     $(`page-${p}`).classList.toggle("d-none", p !== name);
   }
   const onKeys = name !== "message";
-  $("nav-message").className = `btn btn-sm ${onKeys ? "btn-outline-secondary" : "btn-secondary"}`;
-  $("nav-keys").className = `btn btn-sm ${onKeys ? "btn-secondary" : "btn-outline-secondary"}`;
+  $("nav-message").className = `btn btn-sm ${onKeys ? "btn-outline-secondary" : "btn-light"}`;
+  $("nav-keys").className = `btn btn-sm ${onKeys ? "btn-light" : "btn-outline-secondary"}`;
+}
+
+async function showAbout() {
+  showPage("about");
+  const info = await window.inro_about();
+  $("about-version").textContent = info.version;
+  $("about-go").textContent = info.goVersion;
+  $("about-deps").replaceChildren(
+    ...(info.deps || []).flatMap((d) => [document.createTextNode(d), document.createElement("br")]),
+  );
 }
 
 $("nav-message").addEventListener("click", () => showPage("message"));
@@ -268,11 +278,32 @@ $("goto-import").addEventListener("click", () => showPage("import"));
 for (const btn of document.querySelectorAll(".inro-back")) {
   btn.addEventListener("click", () => showPage("keys"));
 }
+for (const btn of document.querySelectorAll(".inro-back-message")) {
+  btn.addEventListener("click", () => showPage("message"));
+}
+document.querySelector(".navbar-brand").addEventListener("click", () => run(showAbout));
+
+// inroMenu is the entry point the native application menu calls (through
+// glaze's Eval); each action lands on the same handler its on-screen control
+// uses, so the menu can never drift from the UI.
+window.inroMenu = (action) => {
+  const actions = {
+    about: () => run(showAbout),
+    open: () => $("open-file").click(),
+    save: () => $("save-file").click(),
+    message: () => showPage("message"),
+    keys: () => showPage("keys"),
+  };
+  const fn = actions[action];
+  if (fn) {
+    fn();
+  }
+};
 
 // --- The message field -----------------------------------------------------------
 
 function keyLabel(k) {
-  const name = k.nickname ? `${k.nickname} — ${k.identity}` : k.identity;
+  const name = k.nickname ? `${k.nickname} - ${k.identity}` : k.identity;
   return `${name} (${k.keyId})`;
 }
 
@@ -350,34 +381,47 @@ function plan() {
       return {
         mode,
         label: "Decrypt",
+        icon: "bi-unlock",
         enabled: false,
         hint: "Not encrypted to any key in your keyring.",
       };
     }
-    return { mode, label: "Decrypt", enabled: true, hint: "" };
+    return { mode, label: "Decrypt", icon: "bi-unlock", enabled: true, hint: "" };
   }
 
   if (mode === "signed") {
-    return { mode, label: "Verify", enabled: true, hint: "" };
+    return { mode, label: "Verify", icon: "bi-patch-check", enabled: true, hint: "" };
   }
 
   if (mode === "empty") {
-    return { mode, label: "Encrypt", enabled: false, hint: "" };
+    return { mode, label: "Encrypt", icon: "bi-lock-fill", enabled: false, hint: "" };
   }
 
   const recipients = selectedValues($("recipients"));
   const signing = $("sign-toggle").checked;
 
   if (recipients.length > 0 && signing) {
-    return { mode, label: "Encrypt & sign", enabled: true, hint: "" };
+    return { mode, label: "Encrypt & sign", icon: "bi-lock-fill", enabled: true, hint: "" };
   }
   if (recipients.length > 0) {
-    return { mode, label: "Encrypt", enabled: true, hint: "" };
+    return { mode, label: "Encrypt", icon: "bi-lock-fill", enabled: true, hint: "" };
   }
   if (signing) {
-    return { mode, label: "Sign", enabled: true, hint: "The message stays readable." };
+    return {
+      mode,
+      label: "Sign",
+      icon: "bi-pen",
+      enabled: true,
+      hint: "The message stays readable.",
+    };
   }
-  return { mode, label: "Encrypt", enabled: false, hint: "Pick a recipient, or turn on Sign." };
+  return {
+    mode,
+    label: "Encrypt",
+    icon: "bi-lock-fill",
+    enabled: false,
+    hint: "Pick a recipient, or turn on Sign.",
+  };
 }
 
 function render() {
@@ -395,7 +439,8 @@ function render() {
   );
   $("sign-key").disabled = !(plain && $("sign-toggle").checked);
 
-  $("run").textContent = p.label;
+  $("run-label").textContent = p.label;
+  $("run-icon").className = `bi ${p.icon}`;
   $("run").disabled = !p.enabled;
   $("hint").textContent = p.hint;
 }
@@ -462,7 +507,7 @@ async function sendFlow() {
     recipients.length === 0
       ? "Signed."
       : `Encrypted to ${recipients.map(labelFor).join(", ")}${signing ? ", signed" : ""}.`;
-  banner("secondary", `${what} The result replaced your text — copy or save it.`, true);
+  banner("secondary", `${what} The result replaced your text. Copy or save it.`, true);
 
   $("text").select();
 }
@@ -624,7 +669,7 @@ function renderKeyList() {
 
     const title = document.createElement("span");
     title.className = "flex-grow-1 text-truncate";
-    title.textContent = k.nickname ? `${k.nickname} — ${k.identity}` : k.identity;
+    title.textContent = k.nickname ? `${k.nickname} - ${k.identity}` : k.identity;
     row.append(title);
 
     if (k.certifiedBy && k.certifiedBy.length > 0) {
@@ -665,7 +710,7 @@ async function refreshKeys() {
 function openKeyPage(k) {
   selectedKey = k;
 
-  $("key-title").textContent = k.nickname ? `${k.nickname} — ${k.identity}` : k.identity;
+  $("key-title").textContent = k.nickname ? `${k.nickname} - ${k.identity}` : k.identity;
   $("key-private-badge").classList.toggle("d-none", !k.private);
   $("key-fingerprint").textContent = k.fingerprint;
 
@@ -794,6 +839,81 @@ $("gen-run").addEventListener("click", () =>
     showInfo(`Generated ${info.identity} (${info.keyId}).`);
   }),
 );
+
+// --- Platform behaviour ------------------------------------------------------------------
+
+// The page is an app, not a document: no browser context menu (with its
+// Reload) outside the text fields. Inside them the native editing menu stays.
+document.addEventListener("contextmenu", (e) => {
+  if (!e.target.closest("textarea, input")) {
+    e.preventDefault();
+  }
+});
+
+// WKWebView without a native Edit menu drops the standard editing shortcuts
+// (Cmd+A/C/X/V never reach the field), so they are reimplemented here. Only
+// for WebKit: Chromium-based hosts (WebView2, this file in a browser) handle
+// them natively, and doubling up would paste twice. The real fix is a native
+// Edit menu once glaze/menu supports standard selectors; see TODO.md.
+const needsEditShim =
+  /AppleWebKit/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+
+function replaceSelection(el, insert) {
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  el.value = el.value.slice(0, start) + insert + el.value.slice(end);
+  const pos = start + insert.length;
+  el.setSelectionRange(pos, pos);
+  el.dispatchEvent(new Event("input"));
+}
+
+if (needsEditShim) {
+  document.addEventListener("keydown", async (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) {
+      return;
+    }
+    const el = document.activeElement;
+    const editable = el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT");
+    if (!editable) {
+      return;
+    }
+
+    const key = e.key.toLowerCase();
+
+    if (key === "a") {
+      e.preventDefault();
+      el.select();
+      return;
+    }
+
+    if (key === "c" || key === "x") {
+      const selection = el.value.slice(el.selectionStart, el.selectionEnd);
+      if (!selection) {
+        return;
+      }
+      e.preventDefault();
+      await navigator.clipboard.writeText(selection);
+      if (key === "x" && !el.readOnly) {
+        replaceSelection(el, "");
+      }
+      return;
+    }
+
+    if (key === "v" && !el.readOnly) {
+      // No preventDefault: the native paste is dead here (that is the bug),
+      // and if a future webview delivers it, this shim should be removed.
+      let text = "";
+      try {
+        text = await navigator.clipboard.readText();
+      } catch {
+        return;
+      }
+      if (text) {
+        replaceSelection(el, text);
+      }
+    }
+  });
+}
 
 // --- Startup ---------------------------------------------------------------------------
 

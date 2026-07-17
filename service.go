@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
@@ -73,6 +74,57 @@ func (s *Service) Settings() (Settings, error) {
 		DefaultKey: strings.ToUpper(s.cfg.DefaultKey),
 		DataDir:    s.cfg.DataDir,
 	}, nil
+}
+
+// AboutInfo is what the About page shows: where this build came from.
+type AboutInfo struct {
+	Version   string   `json:"version"`
+	GoVersion string   `json:"goVersion"`
+	Deps      []string `json:"deps"`
+}
+
+// About reports the build's own metadata, read from the binary rather than
+// hardcoded so it can never lie about a release.
+func (s *Service) About() (AboutInfo, error) {
+	info := AboutInfo{Version: "unknown"}
+
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return info, nil
+	}
+
+	info.GoVersion = bi.GoVersion
+	if bi.Main.Version != "" {
+		info.Version = bi.Main.Version
+	}
+
+	var revision, dirty string
+	for _, setting := range bi.Settings {
+		if setting.Key == "vcs.revision" {
+			revision = setting.Value
+		}
+		if setting.Key == "vcs.modified" && setting.Value == "true" {
+			dirty = " (modified)"
+		}
+	}
+	if info.Version == "(devel)" && revision != "" {
+		info.Version = revision[:min(12, len(revision))] + dirty
+	}
+
+	// The parts of the machine worth crediting on the About page.
+	shown := map[string]bool{
+		"github.com/ProtonMail/go-crypto": true,
+		"github.com/crgimenes/glaze":      true,
+		"github.com/crgimenes/filo":       true,
+		"github.com/crgimenes/native":     true,
+	}
+	for _, dep := range bi.Deps {
+		if shown[dep.Path] {
+			info.Deps = append(info.Deps, fmt.Sprintf("%s %s", dep.Path, dep.Version))
+		}
+	}
+
+	return info, nil
 }
 
 // ListKeys returns every key in the keyring.

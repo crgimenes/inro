@@ -1,14 +1,57 @@
-/* inro layout: one narrow column, one text field, quiet chrome. */
+/* inro layout: editor-like. The window is the app; the text field takes every
+   pixel the controls do not need, and grows and shrinks with the window. */
 
-.inro-narrow {
-  max-width: 860px;
+html, body {
+  height: 100%;
 }
 
-/* textarea.form-control in Bootstrap sets min-height with higher specificity,
+body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* Pages are flex columns so the message page can hand its spare space to the
+   text field. Pages with more content than the window scroll inside main. */
+.inro-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The text field absorbs all free vertical space (editor behaviour).
+   textarea.form-control in Bootstrap sets min-height with higher specificity,
    so the element selector here is load-bearing. */
 textarea.inro-text {
-  min-height: 46vh;
-  resize: vertical;
+  flex: 1 1 auto;
+  min-height: 6rem;
+  resize: none;
+}
+
+/* Brightness: Bootstrap's dark-theme muted/label tones are too dim here.
+   Lift labels, helper text and outline buttons without touching semantics. */
+.form-label,
+.form-check-label {
+  color: #cfd4da;
+}
+
+.form-text,
+.text-muted {
+  color: #a4adb5 !important;
+}
+
+.btn-outline-secondary {
+  --bs-btn-color: #cfd4da;
+  --bs-btn-border-color: #6f777e;
 }
 
 .inro-page-title {
@@ -26,6 +69,7 @@ textarea.inro-text {
 
 .inro-fingerprint {
   word-break: break-all;
+  color: #a4adb5;
 }
 
 textarea.form-control.font-monospace {
