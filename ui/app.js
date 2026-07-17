@@ -417,7 +417,7 @@ function plan() {
   }
 
   const recipients = selectedValues($("recipients"));
-  const signing = $("sign-toggle").checked;
+  const signing = $("sign-toggle").checked && $("sign-key").value !== "";
 
   if (recipients.length > 0 && signing) {
     return { mode, label: "Encrypt & sign", icon: "bi-lock-fill", enabled: true, hint: "" };
@@ -434,13 +434,11 @@ function plan() {
       hint: "The message stays readable.",
     };
   }
-  return {
-    mode,
-    label: "Encrypt",
-    icon: "bi-lock-fill",
-    enabled: false,
-    hint: "Pick a recipient, or turn on Sign.",
-  };
+  let hint = "Pick a recipient, or turn on Sign.";
+  if ($("sign-toggle").checked && $("sign-key").value === "") {
+    hint = "Pick a recipient, or generate a private key to sign with.";
+  }
+  return { mode, label: "Encrypt", icon: "bi-lock-fill", enabled: false, hint: hint };
 }
 
 function render() {
@@ -494,8 +492,8 @@ async function verifyFlow() {
 async function sendFlow() {
   const text = $("text").value;
   const recipients = selectedValues($("recipients"));
-  const signing = $("sign-toggle").checked;
   const signKey = $("sign-key").value;
+  const signing = $("sign-toggle").checked && signKey !== "";
 
   let out;
   if (recipients.length === 0) {
