@@ -33,3 +33,17 @@ go.work.sum
 
 # The binary from a bare "go build" in the repo root.
 /inro
+
+TODO.md
+
+.DS_Store
+
+dist/
+notes.md
+release.sh
+
+*.png
+!assets/*.png
+
+TODO.md
+
