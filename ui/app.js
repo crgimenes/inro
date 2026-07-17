@@ -924,7 +924,10 @@ $("gen-run").addEventListener("click", () =>
 // --- Platform behaviour ------------------------------------------------------------------
 
 // The page is an app, not a document: no browser context menu (with its
-// Reload) outside the text fields. Inside them the native editing menu stays.
+// Reload) outside the text fields and away from selected text. Inside fields
+// and on selections the native menus stay; editing shortcuts (Cmd+A/C/X/V)
+// are the system's job entirely — a shim here once double-pasted, because
+// with the application menubar installed the webview handles them natively.
 document.addEventListener("contextmenu", (e) => {
   if (e.target.closest("textarea, input")) {
     return;
@@ -934,80 +937,6 @@ document.addEventListener("contextmenu", (e) => {
   }
   e.preventDefault();
 });
-
-// WKWebView without a native Edit menu drops the standard editing shortcuts
-// (Cmd+A/C/X/V never reach the field), so they are reimplemented here. Only
-// for WebKit: Chromium-based hosts (WebView2, this file in a browser) handle
-// them natively, and doubling up would paste twice. The real fix is a native
-// Edit menu once glaze/menu supports standard selectors; see TODO.md.
-const needsEditShim =
-  /AppleWebKit/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
-
-function replaceSelection(el, insert) {
-  const start = el.selectionStart;
-  const end = el.selectionEnd;
-  el.value = el.value.slice(0, start) + insert + el.value.slice(end);
-  const pos = start + insert.length;
-  el.setSelectionRange(pos, pos);
-  el.dispatchEvent(new Event("input"));
-}
-
-if (needsEditShim) {
-  document.addEventListener("keydown", async (e) => {
-    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) {
-      return;
-    }
-
-    const key = e.key.toLowerCase();
-    const el = document.activeElement;
-    const editable = el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT");
-
-    if (!editable) {
-      // Selected page text (an error message, a fingerprint) must still copy.
-      if (key === "c") {
-        const selection = String(document.getSelection());
-        if (selection) {
-          e.preventDefault();
-          await navigator.clipboard.writeText(selection);
-        }
-      }
-      return;
-    }
-
-    if (key === "a") {
-      e.preventDefault();
-      el.select();
-      return;
-    }
-
-    if (key === "c" || key === "x") {
-      const selection = el.value.slice(el.selectionStart, el.selectionEnd);
-      if (!selection) {
-        return;
-      }
-      e.preventDefault();
-      await navigator.clipboard.writeText(selection);
-      if (key === "x" && !el.readOnly) {
-        replaceSelection(el, "");
-      }
-      return;
-    }
-
-    if (key === "v" && !el.readOnly) {
-      // No preventDefault: the native paste is dead here (that is the bug),
-      // and if a future webview delivers it, this shim should be removed.
-      let text = "";
-      try {
-        text = await navigator.clipboard.readText();
-      } catch {
-        return;
-      }
-      if (text) {
-        replaceSelection(el, text);
-      }
-    }
-  });
-}
 
 // --- Startup ---------------------------------------------------------------------------
 
