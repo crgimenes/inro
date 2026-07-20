@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>inro — self-contained PGP for the desktop</title>
+<meta name="description" content="Encrypt, sign, verify and decrypt messages, and keep the keys of the people you write to. The OpenPGP engine is built in. Nothing else to install; gpg is never needed.">
+
+<meta property="og:title" content="inro — self-contained PGP for the desktop">
+<meta property="og:description" content="Encrypt, sign, verify and decrypt messages, and keep the keys of the people you write to. No gpg required.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://crgimenes.github.io/inro/">
+<meta property="og:image" content="https://crgimenes.github.io/inro/preview.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0e1013;
+  --panel: #171a1f;
+  --line: #272c34;
+  --fg: #e6e8ec;
+  --dim: #9aa3af;
+  --accent: #e3b341;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 2rem 1rem 3rem;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+/* Corner ribbon, drawn rather than fetched so the page keeps needing nothing
+   from the network beyond the demo itself. Same construction as kutta's: a
+   clipped square with a wide band rotated across it. */
+.ribbon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 120px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+.ribbon a {
+  position: absolute;
+  top: 27px;
+  left: -27px;
+  width: 176px;
+  padding: 6px 0;
+  transform: rotate(45deg);
+  background: var(--accent);
+  color: #1c1304;
+  font: 600 11px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  letter-spacing: .01em;
+  text-align: center;
+  text-decoration: none;
+  pointer-events: auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
+}
+.ribbon a:hover { background: #f0c866; }
+.ribbon a:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+
+main { max-width: 900px; margin: 0 auto; }
+h1 { font-size: 1.6rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+h2 { font-size: 1.1rem; margin: 2.5rem 0 .75rem; }
+.tagline { color: var(--dim); margin: 0 0 1.5rem; }
+a { color: var(--accent); }
+
+/* The screenshot is the whole pitch: it shows the one-field workflow without
+   a word of explanation needed. Bordered like the app window itself so it
+   reads as a real screen, not decoration. */
+#stage {
+  outline: 1px solid var(--line);
+  outline-offset: -1px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #000;
+}
+#stage img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.note { color: var(--dim); font-size: .9rem; margin: .75rem 0 0; }
+
+.downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin: 1.25rem 0;
+}
+.downloads a {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .6rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--fg);
+  text-decoration: none;
+  font-size: .95rem;
+  background: var(--panel);
+}
+.downloads a:hover { border-color: var(--accent); color: var(--accent); }
+.downloads a .os { font-weight: 600; }
+.downloads a .arch { color: var(--dim); font-size: .85em; }
+
+pre {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: .9rem 1rem;
+  overflow-x: auto;
+  font: .9em ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+code { font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--fg); }
+ul.features { padding-left: 1.2rem; }
+ul.features li { margin: .35rem 0; }
+
+footer {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+  font-size: .9rem;
+}
+@media (max-width: 700px) {
+  .ribbon { display: none; }
+}
+@media (max-width: 640px) {
+  body { padding: 1rem .75rem 2rem; }
+  h1 { font-size: 1.3rem; }
+}
+</style>
+</head>
+<body>
+<div class="ribbon"><a href="https://github.com/crgimenes/inro">Fork me on GitHub</a></div>
+<main>
+  <h1>inro</h1>
+  <p class="tagline">Self-contained PGP for the desktop. Paste a message and it is verified, decrypted, or ready to send.</p>
+
+  <div id="stage">
+  <p class="note">
+    One text field. Paste something encrypted or signed and inro handles it on the
+    spot; type a message and pick who it is for. The OpenPGP engine is built in,
+    so there is nothing else to install.
+  </p>
+
+  <h2>Download</h2>
+  <div class="downloads">
+    <a href="https://github.com/crgimenes/inro/releases/latest/download/inro-darwin-universal.zip">
+      <span class="os">macOS</span><span class="arch">Intel &amp; Apple Silicon, signed &amp; notarized</span>
+    </a>
+    <a href="https://github.com/crgimenes/inro/releases/latest/download/inro-windows-amd64.exe">
+      <span class="os">Windows</span><span class="arch">64-bit</span>
+    </a>
+    <a href="https://github.com/crgimenes/inro/releases/latest/download/inro-linux-amd64.gz">
+      <span class="os">Linux</span><span class="arch">x86_64</span>
+    </a>
+  </div>
+  <p class="note">
+    Also on ARM: <a href="https://github.com/crgimenes/inro/releases/latest/download/inro-windows-arm64.exe">Windows arm64</a>
+    · <a href="https://github.com/crgimenes/inro/releases/latest/download/inro-linux-arm64.gz">Linux arm64</a>.
+    On macOS, <a href="https://brew.sh">Homebrew</a> works too:
+  </p>
+  <pre>brew install --cask crgimenes/tap/inro</pre>
+  <p class="note">
+    inro borrows only the webview the OS already ships. macOS has it built in;
+    Windows needs the Edge WebView2 runtime, present on any current Windows;
+    Linux needs GTK with WebKitGTK (<code>libwebkit2gtk-4.1</code>, or
+    <code>libwebkitgtk-6.0</code> for GTK 4), one package install.
+  </p>
+
+  <h2>What it does</h2>
+  <ul class="features">
+    <li>Generates a key pair on the spot: EdDSA/Curve25519, an expiry if you want one, a passphrase set in a confirm-twice window with an honest strength estimate.</li>
+    <li>Verifies a signed message the moment it is pasted, no click required.</li>
+    <li>Finds which of your keys opens an encrypted message by itself and decrypts it, asking for a passphrase only when one is actually needed.</li>
+    <li>Encrypts and signs outgoing text in one step; the result replaces your text, selected and ready to copy.</li>
+    <li>Certifies a friend's key with yours, the "I checked, this really belongs to them" statement of the web of trust.</li>
+    <li>Reads keys already exported from gpg, so switching over keeps your existing contacts and identity.</li>
+  </ul>
+  <p class="note">
+    Your passphrase is never stored. A signature only reports as valid when
+    the signer's key is in your keyring; that the key really belongs to who
+    it claims is still on you.
+  </p>
+
+  <footer>
+    <a href="https://github.com/crgimenes/inro">Source on GitHub</a> ·
+    <a href="https://github.com/crgimenes/inro/releases">All releases</a> ·
+    <a href="https://crg.eti.br">crg.eti.br</a> ·
+    Written in Go with <a href="https://github.com/crgimenes/glaze">glaze</a>
+    and <a href="https://github.com/ProtonMail/go-crypto">ProtonMail/go-crypto</a>.
+  </footer>
+</main>
+</body>
+</html>
