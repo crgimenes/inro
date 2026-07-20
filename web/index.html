@@ -33,9 +33,9 @@ body {
   color: var(--fg);
   font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
-/* Corner ribbon, drawn rather than fetched so the page keeps needing nothing
-   from the network beyond the demo itself. Same construction as kutta's: a
-   clipped square with a wide band rotated across it. */
+/* Corner ribbon, drawn rather than fetched so the page needs nothing from the
+   network at all. Same construction as kutta's: a clipped square with a wide
+   band rotated across it. */
 .ribbon {
   position: absolute;
   top: 0;
@@ -70,22 +70,6 @@ h1 { font-size: 1.6rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
 h2 { font-size: 1.1rem; margin: 2.5rem 0 .75rem; }
 .tagline { color: var(--dim); margin: 0 0 1.5rem; }
 a { color: var(--accent); }
-
-/* The screenshot is the whole pitch: it shows the one-field workflow without
-   a word of explanation needed. Bordered like the app window itself so it
-   reads as a real screen, not decoration. */
-#stage {
-  outline: 1px solid var(--line);
-  outline-offset: -1px;
-  border-radius: 6px;
-  overflow: hidden;
-  background: #000;
-}
-#stage img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
 .note { color: var(--dim); font-size: .9rem; margin: .75rem 0 0; }
 
 .downloads {
@@ -144,7 +128,6 @@ footer {
   <h1>inro</h1>
   <p class="tagline">Self-contained PGP for the desktop. Paste a message and it is verified, decrypted, or ready to send.</p>
 
-  <div id="stage">
   <p class="note">
     One text field. Paste something encrypted or signed and inro handles it on the
     spot; type a message and pick who it is for. The OpenPGP engine is built in,
