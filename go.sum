@@ -10,6 +10,8 @@ github.com/crgimenes/glaze v0.0.33 h1:XZm2cFTSFSY7UarC4w/ziCMJ7Zwkce5Dh1NaO1Koj5
 github.com/crgimenes/glaze v0.0.33/go.mod h1:ZuCIST0F5U6wJLw5ZtqfcTIQA7LI/m2MHv7iMOBmu6U=
 github.com/crgimenes/glaze v0.0.45 h1:pZGCbq6G2BTeC1GtNK6MCcsYBo30K7e9H3jK8Y9QFpc=
 github.com/crgimenes/glaze v0.0.45/go.mod h1:ZuCIST0F5U6wJLw5ZtqfcTIQA7LI/m2MHv7iMOBmu6U=
+github.com/crgimenes/glaze v0.0.46 h1:5E477vEnBPzo7b5/u8wBvSqPnOj0PuD74VA3089Ns2k=
+github.com/crgimenes/glaze v0.0.46/go.mod h1:01e3XdFpYoifpLRriaAoUbL7laZTh0WQmHTTAMd3tFc=
 github.com/ebitengine/purego v0.10.1 h1:dewVBCBT2GaMu1SrNTYxQhgQBethzfhiwvZiLGP/qyY=
 github.com/ebitengine/purego v0.10.1/go.mod h1:iIjxzd6CiRiOG0UyXP+V1+jWqUXVjPKLAI0mRfJZTmQ=
 github.com/ebitengine/purego v0.10.2 h1:W809HbnvzAxgdm+aOvlSekrM16wGCdT/e76+9tS7gzE=
