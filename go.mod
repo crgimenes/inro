@@ -6,7 +6,7 @@ require (
 	github.com/ProtonMail/go-crypto v1.4.1
 	github.com/crgimenes/devengine v0.0.11
 	github.com/crgimenes/filo v0.0.23
-	github.com/crgimenes/glaze v0.0.54
+	github.com/crgimenes/glaze v0.0.61
 )
 
 require (
