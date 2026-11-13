@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # No Go build here: unlike kutta/linefire, this page has no wasm module,
       # just the static files already committed under web/.

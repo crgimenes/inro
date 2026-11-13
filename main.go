@@ -5,11 +5,13 @@ package main
 import (
 	"embed"
 	"errors"
+	"flag"
 	"fmt"
 	"io/fs"
 	"log"
 	"net"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/crgimenes/devengine/assets"
@@ -84,7 +86,33 @@ func installMenu(w glaze.WebView) {
 	}
 }
 
+func usage() {
+	fmt.Printf(`inro - encrypt, sign, verify and decrypt short PGP messages
+
+Usage:
+  inro [flags]
+
+Opens the desktop window. Keys live under DataDir as <FINGERPRINT>.asc
+(gpg --import compatible); nicknames and notes in DataDir/keyring.filo.
+
+Flags:
+  -h  show this help
+
+Config: ./inro_init.filo, else %s
+
+  (set Width 1024)
+  (set Height 720)
+  (set DataDir "~/.config/inro")
+  (set DefaultKey "")
+  (set KeyCacheSeconds 300)
+  (set Debug false)
+`, filepath.Join(configHome(), "inro", "init.filo"))
+}
+
 func main() {
+	flag.Usage = usage
+	flag.Parse()
+
 	cfg, err := loadConfig()
 	if err != nil {
 		log.Fatal(err)
