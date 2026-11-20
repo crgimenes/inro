@@ -29,7 +29,7 @@ executables. Building from source needs only Go; there is no C toolchain on
 any platform:
 
 ```sh
-go install github.com/crgimenes/inro@latest
+go install github.com/crgimenes/inro/cmd/inro@latest
 ```
 
 inro carries its own crypto and UI; the one thing it borrows from the system
