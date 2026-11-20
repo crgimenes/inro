@@ -6,8 +6,8 @@ github.com/crgimenes/devengine v0.0.15 h1:zGTIISWEqPwdZkX4n4UiRNE2toUe/xupMkcFih
 github.com/crgimenes/devengine v0.0.15/go.mod h1:nBig4OGuZoZmlt6N66giKmZO+J7ZkUFjpOf+OnxgjGg=
 github.com/crgimenes/filo v0.1.4 h1:/v+6qTs3i48z5sQWAdvVvJWdQQTb3NwVWMNIX9ther8=
 github.com/crgimenes/filo v0.1.4/go.mod h1:at6YbdrYygETZYeRNlqb5MwDHudvAnCHRIlMnfhaM14=
-github.com/crgimenes/glaze v0.0.85 h1:92CqRfLXChYLoPjzFjV1oHb4+k2tMJzsr4gp4+Sj7PA=
-github.com/crgimenes/glaze v0.0.85/go.mod h1:41rd4sKUekbjd2w9vUSKO4JBf0WKdR1wd+gud5S/agk=
+github.com/crgimenes/glaze v0.0.86 h1:+z2YIIb0jzrfN6e4a2Pn2EfGV87Ep/W3Zbup4cebfPk=
+github.com/crgimenes/glaze v0.0.86/go.mod h1:41rd4sKUekbjd2w9vUSKO4JBf0WKdR1wd+gud5S/agk=
 github.com/ebitengine/purego v0.11.3 h1:OB+JLpdm7ioymhyA+6s5kbb/uOuYycAgL8NNTFc5MLg=
 github.com/ebitengine/purego v0.11.3/go.mod h1:DCHPP08djqhNSoTfImcnHYQRZmd0qhakvrozqaEYhGQ=
 golang.org/x/crypto v0.59.0 h1:xS2jhqYbzNrpvkWP2YTDf4TJwBy3ykR03i8vFDxEc7c=
