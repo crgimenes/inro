@@ -4,9 +4,9 @@ go 1.27.4
 
 require (
 	github.com/ProtonMail/go-crypto v1.5.2
-	github.com/crgimenes/devengine v0.0.14
+	github.com/crgimenes/devengine v0.0.15
 	github.com/crgimenes/filo v0.1.4
-	github.com/crgimenes/glaze v0.0.84
+	github.com/crgimenes/glaze v0.0.85
 )
 
 require (
