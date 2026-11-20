@@ -2,8 +2,8 @@ github.com/ProtonMail/go-crypto v1.5.2 h1:cucYnvqcY7UOXVD//mSyjeaPY0SSN3v5cDkYPx
 github.com/ProtonMail/go-crypto v1.5.2/go.mod h1:/RaSu30DaKO4RY+XdV/ACcCcZkGr7AhUIduq5sjzzCo=
 github.com/cloudflare/circl v1.6.5 h1:O64F26HEqNhznd/hrC5KZXVKYuKM2rx4deZDTc4ihQA=
 github.com/cloudflare/circl v1.6.5/go.mod h1:h5LNyxAc5nTue9DS5jT+48en2PSDYt3zdGnz5OstK6c=
-github.com/crgimenes/devengine v0.0.16 h1:ENd8IgQ+fc38z5I5utWtYLTTJThyBYaSbkSVGMTZN24=
-github.com/crgimenes/devengine v0.0.16/go.mod h1:lSKVmYLZCkl22/sbC7vx3Jbm7/Fr57UiGpIV/XNSLTo=
+github.com/crgimenes/devengine v0.0.17 h1:nOfavoMOL03FcMChNFXxzIk3noOrKsst0QRLTsYU4d4=
+github.com/crgimenes/devengine v0.0.17/go.mod h1:lUzvgLUrixcBJDnbSqM0/g6WaQllNM/WdTqZaAl0xW0=
 github.com/crgimenes/filo v0.1.5 h1:4QvSVV2Ga5SESoL/7drQsb2pPK2Pwwgt8ZCvlS1QxZ0=
 github.com/crgimenes/filo v0.1.5/go.mod h1:at6YbdrYygETZYeRNlqb5MwDHudvAnCHRIlMnfhaM14=
 github.com/crgimenes/glaze v0.0.86 h1:+z2YIIb0jzrfN6e4a2Pn2EfGV87Ep/W3Zbup4cebfPk=
